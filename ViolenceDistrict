@@ -1,8 +1,915 @@
-local key = getgenv().HIDE_LAT_KEY or ""
-local hwid = (gethwid and gethwid()) or "unknown"
-local http = game:GetService("HttpService")
-local url = "https://hide.lat/v1/load/358d0d6a-aa6d-41f1-b463-c667aef3abb0?key=" .. http:UrlEncode(key) .. "&hwid=" .. http:UrlEncode(hwid)
-local body = game:HttpGet(url)
-local chunk, err = loadstring(body)
-if not chunk then error(err) end
-return chunk()
+--[[
+    Mugi Hub | Violence District
+    UI Library: MugiHub by DinoIjoNPC (https://github.com/4MugiHub/MugiHub)
+    -----------------------------------------------------------------------
+    Struktur script ini dipecah per "region" supaya gampang ditambah tab baru.
+    Cari komentar "== TAB: <NAMA> ==" untuk lompat ke bagian tab tertentu.
+]]
+
+----------------------------------------------------------------
+-- LOAD LIBRARY
+----------------------------------------------------------------
+local MugiHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/4MugiHub/MugiHub/refs/heads/main/Mugi"))()
+
+local Players         = game:GetService("Players")
+local Workspace       = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
+local HttpService      = game:GetService("HttpService")
+
+local LocalPlayer = Players.LocalPlayer
+
+----------------------------------------------------------------
+-- ICONS (Lucide via icons.rest)
+-- Main      : lucide "home"          rbxassetid://7733960981
+-- Survivors : lucide "shield-check"  rbxassetid://7734056411
+----------------------------------------------------------------
+local ICONS = {
+    Main      = "rbxassetid://7733960981",
+    Survivors = "rbxassetid://7734056411",
+}
+
+----------------------------------------------------------------
+-- WINDOW
+----------------------------------------------------------------
+local Window = MugiHub:CreateWindow({
+    Title       = "Mugi Hub",
+    Description = "Peaceful Games",
+    Icon        = ICONS.Main,
+    Tags        = {"v1.0", "VD"}
+})
+
+----------------------------------------------------------------
+-- == TAB: MAIN ==
+----------------------------------------------------------------
+local MainTab     = Window:CreateTab({"Main", ICONS.Main})
+local MainSection = MainTab:AddSection("General", true)
+
+MainSection:AddReadMe({
+    "About Mugi Hub",
+    "Mugi Hub is a lightweight utility script built for Violence District. " ..
+    "It focuses on quality-of-life features such as auto farm and quick navigation, " ..
+    "so you can manage your gameplay faster and more efficiently. " ..
+    "This script is community-made and is not affiliated with the official Violence District developers. " ..
+    "Use it at your own discretion.",
+    "Accordion"
+})
+
+-- 1. Back To Lobby
+MainSection:AddButton({
+    Title   = "Back To Lobby",
+    Content = "Load your character back to the lobby",
+    Callback = function()
+        local ok, err = pcall(function()
+            ReplicatedStorage:WaitForChild("Remotes")
+                :WaitForChild("Game")
+                :WaitForChild("loadcharevent")
+                :FireServer()
+        end)
+
+        MugiHub:SetNotification({
+            Title       = "Back To Lobby",
+            Description = ok and "Success" or "Failed",
+            Content     = ok and "Character reload event fired." or tostring(err),
+            Time        = 0.35,
+            Delay       = 3
+        })
+    end
+})
+
+-- 2. TP Lobby
+MainSection:AddButton({
+    Title   = "TP Lobby",
+    Content = "Auto-find and teleport to the SpawnLocation part in Workspace",
+    Callback = function()
+        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+
+        if not hrp then
+            MugiHub:SetNotification({
+                Title = "TP Lobby", Description = "Failed",
+                Content = "HumanoidRootPart not found.", Delay = 3
+            })
+            return
+        end
+
+        local spawnPart
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj.Name == "SpawnLocation" and (obj:IsA("BasePart") or obj:IsA("Model")) then
+                spawnPart = obj
+                break
+            end
+        end
+
+        if spawnPart then
+            local targetCFrame
+            if spawnPart:IsA("Model") then
+                targetCFrame = spawnPart:GetPivot() + Vector3.new(0, 3, 0)
+            else
+                targetCFrame = spawnPart.CFrame + Vector3.new(0, 3, 0)
+            end
+
+            hrp.CFrame = targetCFrame
+
+            MugiHub:SetNotification({
+                Title = "TP Lobby", Description = "Success",
+                Content = "Teleported to SpawnLocation.", Delay = 3
+            })
+        else
+            MugiHub:SetNotification({
+                Title = "TP Lobby", Description = "Failed",
+                Content = "No part/model named 'SpawnLocation' found in Workspace.", Delay = 3
+            })
+        end
+    end
+})
+
+-- 3. Rejoin
+MainSection:AddButton({
+    Title   = "Rejoin",
+    Content = "Rejoin the current server",
+    Callback = function()
+        MugiHub:SetNotification({
+            Title = "Rejoin", Description = "Rejoining...",
+            Content = "You will be reconnected to this server shortly.", Delay = 3
+        })
+        task.wait(1)
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
+})
+
+-- 4. Server Hop
+MainSection:AddButton({
+    Title   = "Server Hop",
+    Content = "Teleport to a different random server",
+    Callback = function()
+        local ok, result = pcall(function()
+            local url = string.format(
+                "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100",
+                game.PlaceId
+            )
+            return HttpService:JSONDecode(game:HttpGet(url))
+        end)
+
+        if not ok or not result or not result.data then
+            MugiHub:SetNotification({
+                Title = "Server Hop", Description = "Error",
+                Content = "Could not fetch the server list.", Delay = 3
+            })
+            return
+        end
+
+        local candidates = {}
+        for _, server in ipairs(result.data) do
+            if server.id ~= game.JobId and server.playing < server.maxPlayers then
+                table.insert(candidates, server)
+            end
+        end
+
+        if #candidates == 0 then
+            MugiHub:SetNotification({
+                Title = "Server Hop", Description = "Failed",
+                Content = "No other available server found.", Delay = 3
+            })
+            return
+        end
+
+        local chosen = candidates[math.random(1, #candidates)]
+        MugiHub:SetNotification({
+            Title = "Server Hop", Description = "Hopping...",
+            Content = "Teleporting to a new server.", Delay = 3
+        })
+        task.wait(1)
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen.id, LocalPlayer)
+    end
+})
+
+-- 5. Small Server
+MainSection:AddButton({
+    Title   = "Small Server",
+    Content = "Find and teleport to the server with the fewest players",
+    Callback = function()
+        local ok, result = pcall(function()
+            local url = string.format(
+                "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100",
+                game.PlaceId
+            )
+            return HttpService:JSONDecode(game:HttpGet(url))
+        end)
+
+        if not ok or not result or not result.data then
+            MugiHub:SetNotification({
+                Title = "Small Server", Description = "Error",
+                Content = "Could not fetch the server list.", Delay = 3
+            })
+            return
+        end
+
+        local best
+        for _, server in ipairs(result.data) do
+            if server.id ~= game.JobId and server.playing < server.maxPlayers then
+                if not best or server.playing < best.playing then
+                    best = server
+                end
+            end
+        end
+
+        if not best then
+            MugiHub:SetNotification({
+                Title = "Small Server", Description = "Failed",
+                Content = "No available server found.", Delay = 3
+            })
+            return
+        end
+
+        MugiHub:SetNotification({
+            Title = "Small Server", Description = "Joining...",
+            Content = string.format("Found a server with %d player(s).", best.playing), Delay = 3
+        })
+        task.wait(1)
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, best.id, LocalPlayer)
+    end
+})
+
+----------------------------------------------------------------
+-- == TAB: SURVIVORS ==
+----------------------------------------------------------------
+local RunService          = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local PG       = LocalPlayer:WaitForChild("PlayerGui")
+local CheckGui = PG:WaitForChild("SkillCheckPromptGui")
+local Check    = CheckGui:WaitForChild("Check")
+local Line     = Check:WaitForChild("Line")
+local Goal     = Check:WaitForChild("Goal")
+
+-- State
+local SC_Mode    = "Instant"   -- "Instant" | "Legit"
+local SC_Enabled = false
+local SC_Conn    = nil         -- heartbeat / visible connection
+local SC_VisConn = nil
+
+local SurvivorsTab  = Window:CreateTab({"Survivors", ICONS.Survivors})
+local GenSection    = SurvivorsTab:AddSection("Auto Generators", false)
+
+----------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------
+local function PressSpace()
+    VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.Space, false, game)
+    task.wait(0.01)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+end
+
+local function LineInGoal()
+    local lr = Line.Rotation % 360
+    local gr = Goal.Rotation % 360
+    local gs = (gr + 104) % 360
+    local ge = (gr + 114) % 360
+    if gs > ge then
+        return lr >= gs or lr <= ge
+    else
+        return lr >= gs and lr <= ge
+    end
+end
+
+local function IsSurvivor()
+    return LocalPlayer.Team ~= nil and LocalPlayer.Team.Name == "Survivors"
+end
+
+----------------------------------------------------------------
+-- Mode logic
+----------------------------------------------------------------
+local function StopSkillCheck()
+    if SC_Conn then SC_Conn:Disconnect(); SC_Conn = nil end
+end
+
+-- LEGIT: tunggu Line masuk Goal baru press
+local function HeartbeatLegit()
+    if not IsSurvivor() then StopSkillCheck(); return end
+    if LineInGoal() then
+        PressSpace()
+        StopSkillCheck()
+    end
+end
+
+-- INSTANT: langsung press begitu Check visible
+local function OnCheckVisibleInstant()
+    if not SC_Enabled then return end
+    if not IsSurvivor() then return end
+    if Check.Visible then
+        PressSpace()
+    end
+end
+
+-- LEGIT: pasang heartbeat waktu Check visible
+local function OnCheckVisibleLegit()
+    if not SC_Enabled then return end
+    if not IsSurvivor() then StopSkillCheck(); return end
+    if Check.Visible then
+        StopSkillCheck()
+        SC_Conn = RunService.Heartbeat:Connect(HeartbeatLegit)
+    else
+        StopSkillCheck()
+    end
+end
+
+----------------------------------------------------------------
+-- Enable / Disable
+----------------------------------------------------------------
+local function StartSkillCheck()
+    -- bersihkan koneksi lama dulu
+    if SC_VisConn then SC_VisConn:Disconnect(); SC_VisConn = nil end
+    StopSkillCheck()
+
+    if SC_Mode == "Instant" then
+        SC_VisConn = Check:GetPropertyChangedSignal("Visible"):Connect(OnCheckVisibleInstant)
+    else
+        SC_VisConn = Check:GetPropertyChangedSignal("Visible"):Connect(OnCheckVisibleLegit)
+    end
+end
+
+local function StopAll()
+    if SC_VisConn then SC_VisConn:Disconnect(); SC_VisConn = nil end
+    StopSkillCheck()
+end
+
+----------------------------------------------------------------
+-- UI — Auto Generators
+----------------------------------------------------------------
+
+-- Dropdown: SkillCheck mode
+GenSection:AddDropdown({
+    Title   = "SkillCheck",
+    Content = "Select skill check mode",
+    List    = {"Instant", "Legit"},
+    Default = "Instant",
+    Callback = function(value)
+        SC_Mode = value
+        -- kalau lagi aktif, restart supaya mode baru langsung kepake
+        if SC_Enabled then
+            StartSkillCheck()
+        end
+    end
+})
+
+-- Toggle: Enabled
+GenSection:AddToggle({
+    Title   = "Enabled",
+    Content = "Activate auto skill check",
+    Default = false,
+    Callback = function(state)
+        SC_Enabled = state
+        if SC_Enabled then
+            StartSkillCheck()
+            MugiHub:SetNotification({
+                Title = "Auto Generators", Description = "SkillCheck ON",
+                Content = "Mode: " .. SC_Mode, Delay = 3
+            })
+        else
+            StopAll()
+            MugiHub:SetNotification({
+                Title = "Auto Generators", Description = "SkillCheck OFF",
+                Content = "Auto skill check disabled.", Delay = 3
+            })
+        end
+    end
+})
+
+GenSection:AddSeparator("Instant Complete")
+
+GenSection:AddButton({
+    Title   = "Complete All Generators",
+    Content = "Instantly complete all generators in the map",
+    Callback = function()
+        if not IsSurvivor() then
+            MugiHub:SetNotification({
+                Title = "Auto Generators", Description = "Failed",
+                Content = "You must be a Survivor.", Delay = 3
+            })
+            return
+        end
+
+        local map = Workspace:FindFirstChild("Map")
+        if not map then
+            MugiHub:SetNotification({
+                Title = "Auto Generators", Description = "Failed",
+                Content = "Map not found.", Delay = 3
+            })
+            return
+        end
+
+        local remotes         = ReplicatedStorage:FindFirstChild("Remotes")
+        local genRemotes      = remotes and remotes:FindFirstChild("Generator")
+        local repairEvent     = genRemotes and genRemotes:FindFirstChild("RepairEvent")
+        local skillCheckEvent = genRemotes and genRemotes:FindFirstChild("SkillCheckResultEvent")
+
+        if not repairEvent or not skillCheckEvent then
+            MugiHub:SetNotification({
+                Title = "Auto Generators", Description = "Failed",
+                Content = "Remotes not found.", Delay = 3
+            })
+            return
+        end
+
+        local completed = 0
+        for _, obj in ipairs(map:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name == "Generator" then
+                for _, point in ipairs(obj:GetChildren()) do
+                    if point.Name:find("GeneratorPoint") then
+                        pcall(function()
+                            for _ = 1, 10 do
+                                repairEvent:FireServer(point, true)
+                                skillCheckEvent:FireServer("success", 1, obj, point)
+                            end
+                        end)
+                        completed = completed + 1
+                    end
+                end
+            end
+        end
+
+        MugiHub:SetNotification({
+            Title = "Auto Generators",
+            Description = completed > 0 and "Success" or "Failed",
+            Content = completed > 0
+                and string.format("Completed %d generator point(s).", completed)
+                or "No generator points found.",
+            Delay = 3
+        })
+    end
+})
+
+----------------------------------------------------------------
+-- UI — Bypass Gate
+----------------------------------------------------------------
+local GateSection = SurvivorsTab:AddSection("Bypass Gate", false)
+
+GateSection:AddButton({
+    Title   = "Bypass Gate",
+    Content = "Teleport to Fininsline part in the map",
+    Callback = function()
+        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+
+        if not hrp then
+            MugiHub:SetNotification({
+                Title = "Bypass Gate", Description = "Failed",
+                Content = "HumanoidRootPart not found.", Delay = 3
+            })
+            return
+        end
+
+        -- Cari "Fininsline" di seluruh Workspace (termasuk di dalam folder Map)
+        local target = nil
+
+        local function SearchIn(parent)
+            for _, obj in ipairs(parent:GetDescendants()) do
+                if obj.Name == "Fininsline" and obj:IsA("BasePart") then
+                    target = obj
+                    return
+                end
+            end
+        end
+
+        -- 1. Cari di dalam folder/model Map kalau ada
+        local mapFolder = Workspace:FindFirstChild("Map")
+        if mapFolder then
+            SearchIn(mapFolder)
+        end
+
+        -- 2. Kalau belum ketemu, cari seluruh Workspace
+        if not target then
+            SearchIn(Workspace)
+        end
+
+        if target then
+            hrp.CFrame = target.CFrame + Vector3.new(0, 4, 0)
+            MugiHub:SetNotification({
+                Title = "Bypass Gate", Description = "Success",
+                Content = "Teleported to Fininsline.", Delay = 3
+            })
+        else
+            MugiHub:SetNotification({
+                Title = "Bypass Gate", Description = "Failed",
+                Content = "Fininsline not found in the map.", Delay = 3
+            })
+        end
+    end
+})
+
+----------------------------------------------------------------
+-- == TAB: ESP ==
+----------------------------------------------------------------
+local RunService2 = game:GetService("RunService")
+
+-- State ESP
+local ESP_Enabled        = false
+local ESP_Survivors      = true
+local ESP_Killers        = true
+local ESP_Generators     = true
+local ESP_ShowDistSurv   = true
+local ESP_ShowDistKill   = true
+local ESP_ShowGenProg    = true
+local ESP_ConnLoop       = nil
+local ESP_ActiveGens     = {}
+
+local ESP_Colors = {
+    White   = Color3.fromRGB(255, 255, 255),
+    Pink    = Color3.fromRGB(255, 105, 180),
+    Purple  = Color3.fromRGB(180, 0, 255),
+    Green   = Color3.fromRGB(0, 255, 100),
+    Cyan    = Color3.fromRGB(0, 220, 255),
+    Orange  = Color3.fromRGB(255, 140, 0),
+    Yellow  = Color3.fromRGB(255, 230, 0),
+    Red     = Color3.fromRGB(255, 50, 50),
+    Lime    = Color3.fromRGB(150, 255, 0),
+    Sky     = Color3.fromRGB(100, 180, 255),
+    Magenta = Color3.fromRGB(255, 0, 200),
+    Gold    = Color3.fromRGB(255, 200, 50),
+}
+local ESP_ColorList = {"White","Pink","Purple","Green","Cyan","Orange","Yellow","Red","Lime","Sky","Magenta","Gold"}
+
+local ESP_SurvColor = ESP_Colors.Cyan
+local ESP_KillColor = ESP_Colors.Red
+local ESP_GenColor  = ESP_Colors.Orange
+
+-- Helper: GetGameValue (attribute atau Value child)
+local function ESP_GetValue(obj, name)
+    if not obj then return nil end
+    local attr = obj:GetAttribute(name)
+    if attr ~= nil then return attr end
+    local child = obj:FindFirstChild(name)
+    if child then
+        local ok, v = pcall(function() return child.Value end)
+        if ok then return v end
+    end
+    return nil
+end
+
+-- Helper: Highlight
+local function ESP_ApplyHighlight(obj, color)
+    if not obj or not obj.Parent then return end
+    local h = obj:FindFirstChild("MugiESP_H") or Instance.new("Highlight")
+    h.Name             = "MugiESP_H"
+    h.Adornee          = obj
+    h.FillColor        = color
+    h.OutlineColor     = color
+    h.FillTransparency = 0.75
+    h.OutlineTransparency = 0.2
+    h.DepthMode        = Enum.HighlightDepthMode.AlwaysOnTop
+    h.Parent           = obj
+end
+
+local function ESP_RemoveHighlight(obj)
+    if not obj then return end
+    local h = obj:FindFirstChild("MugiESP_H")
+    if h then h:Destroy() end
+end
+
+-- Helper: Billboard label player
+local function ESP_ApplyPlayerLabel(char, text, color)
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local bb = hrp:FindFirstChild("MugiESP_Label")
+    if not bb then
+        bb = Instance.new("BillboardGui")
+        bb.Name          = "MugiESP_Label"
+        bb.AlwaysOnTop   = true
+        bb.Size          = UDim2.new(0, 120, 0, 28)
+        bb.StudsOffset   = Vector3.new(0, 3, 0)
+        bb.Adornee       = hrp
+        bb.Parent        = hrp
+        local lbl = Instance.new("TextLabel", bb)
+        lbl.Name                  = "Lbl"
+        lbl.Size                  = UDim2.new(1,0,1,0)
+        lbl.BackgroundTransparency= 1
+        lbl.Font                  = Enum.Font.GothamBold
+        lbl.TextSize              = 11
+        lbl.TextStrokeTransparency= 0
+        lbl.TextStrokeColor3      = Color3.new(0,0,0)
+        lbl.TextWrapped           = true
+    end
+    local lbl = bb:FindFirstChild("Lbl")
+    if lbl then lbl.Text = text; lbl.TextColor3 = color end
+end
+
+local function ESP_RemovePlayerLabel(char)
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local bb = hrp:FindFirstChild("MugiESP_Label")
+    if bb then bb:Destroy() end
+end
+
+-- Generator progress bar billboard
+-- Bar mengecil/melebar sesuai jarak, warna smooth merah→hijau
+local function ESP_UpdateGenBar(gen)
+    if not gen or not gen.Parent then return true end
+
+    local progress = ESP_GetValue(gen, "RepairProgress")
+                  or ESP_GetValue(gen, "Progress")
+                  or 0
+    progress = math.clamp(progress, 0, 100)
+
+    -- Kalau sudah 100%, hapus
+    if progress >= 100 then
+        local bb = gen:FindFirstChild("MugiESP_GenBar")
+        if bb then bb:Destroy() end
+        ESP_RemoveHighlight(gen)
+        return true
+    end
+
+    -- Hitung jarak
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local genPart = gen:FindFirstChildWhichIsA("BasePart")
+    local dist = 0
+    if myHRP and genPart then
+        dist = (myHRP.Position - genPart.Position).Magnitude
+    end
+
+    -- Skala bar: makin jauh makin sempit (min 30px, max 110px)
+    local maxDist   = 200
+    local minWidth  = 30
+    local maxWidth  = 110
+    local t         = math.clamp(1 - (dist / maxDist), 0, 1)
+    local barWidth  = minWidth + (maxWidth - minWidth) * t
+
+    -- Warna smooth merah → kuning → hijau
+    local r, g
+    if progress <= 50 then
+        local f = progress / 50
+        r = 255
+        g = math.floor(255 * f)
+    else
+        local f = (progress - 50) / 50
+        r = math.floor(255 * (1 - f))
+        g = 255
+    end
+    local barColor = Color3.fromRGB(r, g, 0)
+
+    -- Billboard
+    local bb = gen:FindFirstChild("MugiESP_GenBar")
+    if not bb then
+        bb = Instance.new("BillboardGui")
+        bb.Name        = "MugiESP_GenBar"
+        bb.AlwaysOnTop = true
+        bb.StudsOffset = Vector3.new(0, 4.5, 0)
+        bb.Parent      = gen
+
+        -- Background bar (abu gelap)
+        local bg = Instance.new("Frame", bb)
+        bg.Name                  = "BG"
+        bg.BackgroundColor3      = Color3.fromRGB(30, 30, 30)
+        bg.BorderSizePixel       = 0
+        bg.AnchorPoint           = Vector2.new(0.5, 0.5)
+        bg.Position              = UDim2.new(0.5, 0, 0.5, 0)
+        Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+        local stroke = Instance.new("UIStroke", bg)
+        stroke.Color     = Color3.fromRGB(60, 60, 60)
+        stroke.Thickness = 1
+
+        -- Fill bar
+        local fill = Instance.new("Frame", bg)
+        fill.Name             = "Fill"
+        fill.BackgroundColor3 = barColor
+        fill.BorderSizePixel  = 0
+        fill.AnchorPoint      = Vector2.new(0, 0.5)
+        fill.Position         = UDim2.new(0, 0, 0.5, 0)
+        Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+    end
+
+    -- Update ukuran billboard & bar berdasarkan jarak
+    bb.Size = UDim2.new(0, barWidth + 8, 0, 14)
+
+    local bg   = bb:FindFirstChild("BG")
+    local fill = bg and bg:FindFirstChild("Fill")
+    if bg then
+        bg.Size = UDim2.new(0, barWidth, 0, 8)
+    end
+    if fill then
+        -- Smooth color update
+        fill.Size             = UDim2.new(progress / 100, 0, 1, 0)
+        fill.BackgroundColor3 = barColor
+    end
+
+    -- Highlight generator pakai warna progress juga
+    if ESP_Generators then
+        ESP_ApplyHighlight(gen, barColor)
+    end
+
+    return false
+end
+
+-- Refresh semua ESP object (hook, pallet, gate, window)
+local function ESP_RefreshObjects()
+    ESP_ActiveGens = {}
+    local map = Workspace:FindFirstChild("Map")
+    if not map then return end
+    for _, obj in ipairs(map:GetDescendants()) do
+        if obj.Name == "Generator" and obj:IsA("Model") then
+            table.insert(ESP_ActiveGens, obj)
+        elseif obj.Name == "Hook" then
+            local m = obj:FindFirstChild("Model")
+            if m then
+                for _, p in ipairs(m:GetDescendants()) do
+                    if p:IsA("MeshPart") then
+                        ESP_ApplyHighlight(p, Color3.fromRGB(132, 255, 169))
+                    end
+                end
+            end
+        elseif obj.Name == "Palletwrong" or obj.Name == "Pallet" then
+            ESP_ApplyHighlight(obj, Color3.fromRGB(74, 255, 181))
+        elseif obj.Name == "Gate" then
+            ESP_ApplyHighlight(obj, Color3.fromRGB(255, 255, 255))
+        end
+    end
+    -- Window di luar Map
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "Window" then
+            ESP_ApplyHighlight(obj, Color3.fromRGB(74, 255, 181))
+        end
+    end
+end
+
+local function ESP_ClearAll()
+    -- Hapus label & highlight player
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then
+            ESP_RemoveHighlight(p.Character)
+            ESP_RemovePlayerLabel(p.Character)
+        end
+    end
+    -- Hapus highlight objects di Map
+    local map = Workspace:FindFirstChild("Map")
+    if map then
+        for _, obj in ipairs(map:GetDescendants()) do
+            ESP_RemoveHighlight(obj)
+            local bb = obj:FindFirstChild("MugiESP_GenBar")
+            if bb then bb:Destroy() end
+        end
+    end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        ESP_RemoveHighlight(obj)
+    end
+    ESP_ActiveGens = {}
+end
+
+local function ESP_StartLoop()
+    if ESP_ConnLoop then return end
+    ESP_RefreshObjects()
+    ESP_ConnLoop = RunService2.Heartbeat:Connect(function()
+        if not ESP_Enabled then return end
+
+        -- Player ESP
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p == LocalPlayer then continue end
+            local char = p.Character
+            if not char then continue end
+            local team = p.Team and p.Team.Name or ""
+            local hrp  = char:FindFirstChild("HumanoidRootPart")
+            local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local dist = (hrp and myHRP) and math.floor((hrp.Position - myHRP.Position).Magnitude) or 0
+
+            if team == "Survivors" and ESP_Survivors then
+                ESP_ApplyHighlight(char, ESP_SurvColor)
+                local txt = p.Name
+                if ESP_ShowDistSurv then txt = txt .. "\n" .. dist .. "m" end
+                ESP_ApplyPlayerLabel(char, txt, ESP_SurvColor)
+            elseif team == "Killer" and ESP_Killers then
+                ESP_ApplyHighlight(char, ESP_KillColor)
+                local txt = p.Name
+                if ESP_ShowDistKill then txt = txt .. "\n" .. dist .. "m" end
+                ESP_ApplyPlayerLabel(char, txt, ESP_KillColor)
+            else
+                ESP_RemoveHighlight(char)
+                ESP_RemovePlayerLabel(char)
+            end
+        end
+
+        -- Generator progress bar
+        if ESP_Generators and ESP_ShowGenProg then
+            for i = #ESP_ActiveGens, 1, -1 do
+                local g = ESP_ActiveGens[i]
+                if not g or not g.Parent then
+                    table.remove(ESP_ActiveGens, i)
+                elseif ESP_UpdateGenBar(g) then
+                    table.remove(ESP_ActiveGens, i)
+                end
+            end
+        elseif ESP_Generators then
+            for _, g in ipairs(ESP_ActiveGens) do
+                ESP_ApplyHighlight(g, ESP_GenColor)
+            end
+        end
+    end)
+
+    -- Auto re-scan kalau map baru load
+    Workspace.ChildAdded:Connect(function(c)
+        if c.Name == "Map" then task.wait(1); ESP_RefreshObjects() end
+    end)
+end
+
+local function ESP_StopLoop()
+    if ESP_ConnLoop then ESP_ConnLoop:Disconnect(); ESP_ConnLoop = nil end
+    ESP_ClearAll()
+end
+
+-- ICONS
+local ESPTab = Window:CreateTab({"ESP", "rbxassetid://7733774602"}) -- lucide "eye"
+
+-- Section: Enabled ESP
+local ESPEnableSection = ESPTab:AddSection("Enabled ESP", false)
+ESPEnableSection:AddToggle({
+    Title   = "Enabled ESP",
+    Content = "Toggle all ESP on/off",
+    Default = false,
+    Callback = function(state)
+        ESP_Enabled = state
+        if state then
+            ESP_StartLoop()
+            MugiHub:SetNotification({ Title="ESP", Description="ON", Content="ESP activated.", Delay=3 })
+        else
+            ESP_StopLoop()
+            MugiHub:SetNotification({ Title="ESP", Description="OFF", Content="ESP disabled.", Delay=3 })
+        end
+    end
+})
+
+-- Section: Object ESP
+local ESPObjSection = ESPTab:AddSection("Object ESP", false)
+ESPObjSection:AddToggle({
+    Title = "Survivors", Content = "Highlight survivors",
+    Default = true,
+    Callback = function(state) ESP_Survivors = state end
+})
+ESPObjSection:AddToggle({
+    Title = "Killers", Content = "Highlight killers",
+    Default = true,
+    Callback = function(state) ESP_Killers = state end
+})
+ESPObjSection:AddToggle({
+    Title = "Generators", Content = "Highlight generators + progress bar",
+    Default = true,
+    Callback = function(state)
+        ESP_Generators = state
+        if not state then
+            for _, g in ipairs(ESP_ActiveGens) do
+                ESP_RemoveHighlight(g)
+                local bb = g:FindFirstChild("MugiESP_GenBar")
+                if bb then bb:Destroy() end
+            end
+        end
+    end
+})
+
+-- Section: Settings ESP
+local ESPSettSection = ESPTab:AddSection("Settings ESP", false)
+ESPSettSection:AddToggle({
+    Title = "Show Distance (Survivors)", Content = "Show stud distance on survivor label",
+    Default = true,
+    Callback = function(state) ESP_ShowDistSurv = state end
+})
+ESPSettSection:AddToggle({
+    Title = "Show Distance (Killers)", Content = "Show stud distance on killer label",
+    Default = true,
+    Callback = function(state) ESP_ShowDistKill = state end
+})
+ESPSettSection:AddToggle({
+    Title = "Show Generator Progress", Content = "Show bar progress on each generator",
+    Default = true,
+    Callback = function(state)
+        ESP_ShowGenProg = state
+        if not state then
+            for _, g in ipairs(ESP_ActiveGens) do
+                local bb = g:FindFirstChild("MugiESP_GenBar")
+                if bb then bb:Destroy() end
+            end
+        end
+    end
+})
+
+-- Section: Color ESP
+local ESPColorSection = ESPTab:AddSection("Color ESP", false)
+ESPColorSection:AddDropdown({
+    Title   = "Survivors Color",
+    Content = "Highlight color for survivors",
+    List    = ESP_ColorList,
+    Default = "Cyan",
+    Callback = function(v) ESP_SurvColor = ESP_Colors[v] end
+})
+ESPColorSection:AddDropdown({
+    Title   = "Killers Color",
+    Content = "Highlight color for killers",
+    List    = ESP_ColorList,
+    Default = "Red",
+    Callback = function(v) ESP_KillColor = ESP_Colors[v] end
+})
+ESPColorSection:AddDropdown({
+    Title   = "Generators Color",
+    Content = "Fallback color when progress bar is off",
+    List    = ESP_ColorList,
+    Default = "Orange",
+    Callback = function(v) ESP_GenColor = ESP_Colors[v] end
+})
