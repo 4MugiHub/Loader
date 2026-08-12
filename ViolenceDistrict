@@ -21,22 +21,30 @@ local LocalPlayer = Players.LocalPlayer
 
 ----------------------------------------------------------------
 -- ICONS (Lucide via icons.rest)
--- Main      : lucide "home"          rbxassetid://7733960981
--- Survivors : lucide "shield-check"  rbxassetid://7734056411
+-- Main      : lucide "home"           rbxassetid://7733960981
+-- Survivors : lucide "person-running" rbxassetid://7734001284
+-- Killer    : lucide "skull"          rbxassetid://7733931715
+-- ESP       : lucide "eye"            rbxassetid://7733774602
 ----------------------------------------------------------------
 local ICONS = {
     Main      = "rbxassetid://7733960981",
-    Survivors = "rbxassetid://7734056411",
+    Survivors = "rbxassetid://7734001284",
+    Killer    = "rbxassetid://7733931715",
+    ESP       = "rbxassetid://7733774602",
 }
 
 ----------------------------------------------------------------
 -- WINDOW
 ----------------------------------------------------------------
+local _executorName = (identifyexecutor and identifyexecutor()) or
+                      (getexecutorname and getexecutorname()) or
+                      "Unknown"
+
 local Window = MugiHub:CreateWindow({
     Title       = "Mugi Hub",
     Description = "Peaceful Games",
     Icon        = ICONS.Main,
-    Tags        = {"v1.0", "VD"}
+    Tags        = {"v1.0", "VD | Freemium", "Executor: " .. _executorName}
 })
 
 ----------------------------------------------------------------
@@ -499,6 +507,360 @@ GateSection:AddButton({
 })
 
 ----------------------------------------------------------------
+-- TEAM JOIN NOTIFICATION
+----------------------------------------------------------------
+local RunService = game:GetService("RunService")
+
+local _lastTeam = nil
+RunService.Heartbeat:Connect(function()
+    local team = LocalPlayer.Team
+    local teamName = team and team.Name or nil
+    if teamName ~= _lastTeam then
+        _lastTeam = teamName
+        if teamName == "Survivors" or teamName == "Survivor" then
+            MugiHub:SetNotification({
+                Title       = "Team Survivors",
+                Description = "You Are On Team Survivors",
+                Content     = "Stay hidden. Fix generators. Escape.",
+                Delay       = 5,
+                Color       = Color3.fromRGB(64, 180, 255),
+            })
+        elseif teamName == "Killer" or teamName == "Killers" then
+            MugiHub:SetNotification({
+                Title       = "Team Killer",
+                Description = "You Are On Team Killer",
+                Content     = "Hunt them down. Let none escape.",
+                Delay       = 5,
+                Color       = Color3.fromRGB(220, 50, 50),
+            })
+        end
+    end
+end)
+
+----------------------------------------------------------------
+-- == TAB: KILLER ==
+----------------------------------------------------------------
+local KillerTab = Window:CreateTab({"Killer", ICONS.Killer})
+
+local function IsKiller()
+    return LocalPlayer.Team ~= nil and
+        (LocalPlayer.Team.Name == "Killer" or LocalPlayer.Team.Name == "Killers")
+end
+
+----------------------------------------------------------------
+-- Section: Auto Attack
+----------------------------------------------------------------
+local AutoAtkSection = KillerTab:AddSection("Auto Attack", false)
+
+local AA_Enabled = false
+local AA_Range   = 10
+local AA_Conn    = nil
+local AA_Cooldown = 0
+local AA_CD_Time  = 0.3
+
+local function AA_FindTarget()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local closest, closestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Team and
+           (p.Team.Name == "Survivors" or p.Team.Name == "Survivor") and
+           p.Character then
+            local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
+            if tHRP then
+                local dist = (tHRP.Position - hrp.Position).Magnitude
+                if dist < closestDist and dist <= AA_Range then
+                    closestDist = dist
+                    closest = p
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function AA_Start()
+    if AA_Conn then return end
+    AA_Conn = RunService.Heartbeat:Connect(function()
+        if not AA_Enabled or not IsKiller() then return end
+        local now = tick()
+        if now - AA_Cooldown < AA_CD_Time then return end
+        AA_Cooldown = now
+        local target = AA_FindTarget()
+        if not target then return end
+        pcall(function()
+            ReplicatedStorage
+                :WaitForChild("Remotes")
+                :WaitForChild("Attacks")
+                :WaitForChild("BasicAttack")
+                :FireServer(false)
+        end)
+    end)
+end
+
+local function AA_Stop()
+    if AA_Conn then AA_Conn:Disconnect(); AA_Conn = nil end
+end
+
+AutoAtkSection:AddToggle({
+    Title   = "Auto Attack",
+    Content = "Automatically attack nearby survivors",
+    Default = false,
+    Callback = function(state)
+        AA_Enabled = state
+        if state then
+            if not IsKiller() then
+                MugiHub:SetNotification({
+                    Title = "Auto Attack", Description = "Failed",
+                    Content = "You must be on Team Killer.", Delay = 3
+                })
+                AA_Enabled = false
+                return
+            end
+            AA_Start()
+            MugiHub:SetNotification({
+                Title = "Auto Attack", Description = "ON",
+                Content = "Range: " .. AA_Range .. " studs", Delay = 3
+            })
+        else
+            AA_Stop()
+            MugiHub:SetNotification({
+                Title = "Auto Attack", Description = "OFF",
+                Content = "Auto attack disabled.", Delay = 3
+            })
+        end
+    end
+})
+
+AutoAtkSection:AddSlider({
+    Title   = "Attack Range",
+    Content = "Max distance to auto attack survivors",
+    Min     = 5,
+    Max     = 25,
+    Default = 10,
+    Callback = function(val) AA_Range = val end
+})
+
+----------------------------------------------------------------
+-- Section: The Masked
+----------------------------------------------------------------
+local MaskedSection = KillerTab:AddSection("The Masked", false)
+
+-- Data mask
+local MASK_DATA = {
+    { arg = "Richard",  label = "Rooster"  },
+    { arg = "Tony",     label = "Tiger"    },
+    { arg = "Brandon",  label = "Panther"  },
+    { arg = "Cobra",    label = "Cobra"    },
+    { arg = "Richter",  label = "Rat"      },
+    { arg = "Rabbit",   label = "Rabbit"   },
+    { arg = "Alex",     label = "Chainsaw" },
+}
+
+local function FireMask(argName)
+    pcall(function()
+        ReplicatedStorage
+            :WaitForChild("Remotes")
+            :WaitForChild("Killers")
+            :WaitForChild("Masked")
+            :WaitForChild("Activatepower")
+            :FireServer(argName)
+    end)
+end
+
+local function CheckIsMasked()
+    local skVal = LocalPlayer:GetAttribute("SelectedKiller")
+    if skVal == nil then
+        local sk = LocalPlayer:FindFirstChild("SelectedKiller")
+        if sk then skVal = sk.Value end
+    end
+    if skVal == nil then return false end
+    return tostring(skVal):lower():find("masked") ~= nil
+end
+
+-- GUI draggable Mask Options
+local MaskGui = nil
+
+local function BuildMaskGui()
+    -- Hapus GUI lama kalau ada
+    if MaskGui and MaskGui.Parent then MaskGui:Destroy() end
+
+    local PG2 = LocalPlayer:WaitForChild("PlayerGui")
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name            = "MugiMaskOptions"
+    ScreenGui.ResetOnSpawn    = false
+    ScreenGui.DisplayOrder    = 999
+    ScreenGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent          = PG2
+
+    -- Main Frame
+    local Main = Instance.new("Frame")
+    Main.Name                = "Main"
+    Main.Size                = UDim2.new(0, 200, 0, 32)  -- collapsed by default
+    Main.Position            = UDim2.new(0.5, -100, 0.3, 0)
+    Main.BackgroundColor3    = Color3.fromRGB(18, 18, 24)
+    Main.BorderSizePixel     = 0
+    Main.ClipsDescendants    = true
+    Main.Parent              = ScreenGui
+    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+    local stroke = Instance.new("UIStroke", Main)
+    stroke.Color     = Color3.fromRGB(80, 80, 120)
+    stroke.Thickness = 1.5
+
+    -- Title bar
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Name             = "TitleBar"
+    TitleBar.Size             = UDim2.new(1, 0, 0, 32)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
+    TitleBar.BorderSizePixel  = 0
+    TitleBar.Parent           = Main
+    Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 10)
+
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Size                   = UDim2.new(1, -44, 1, 0)
+    TitleLabel.Position               = UDim2.new(0, 12, 0, 0)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Text                   = "Mask Options"
+    TitleLabel.TextColor3             = Color3.fromRGB(220, 220, 255)
+    TitleLabel.Font                   = Enum.Font.GothamBold
+    TitleLabel.TextSize               = 11
+    TitleLabel.TextXAlignment         = Enum.TextXAlignment.Left
+    TitleLabel.Parent                 = TitleBar
+
+    -- Minimize button
+    local isOpen  = false
+    local MinBtn  = Instance.new("TextButton")
+    MinBtn.Size                   = UDim2.new(0, 22, 0, 22)
+    MinBtn.Position               = UDim2.new(1, -28, 0.5, -11)
+    MinBtn.BackgroundColor3       = Color3.fromRGB(60, 60, 90)
+    MinBtn.Text                   = "+"
+    MinBtn.TextColor3             = Color3.fromRGB(220, 220, 255)
+    MinBtn.Font                   = Enum.Font.GothamBold
+    MinBtn.TextSize               = 13
+    MinBtn.BorderSizePixel        = 0
+    MinBtn.Parent                 = TitleBar
+    Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+    -- Content frame (grid tombol mask)
+    local Content = Instance.new("Frame")
+    Content.Name             = "Content"
+    Content.Size             = UDim2.new(1, -12, 0, 0)
+    Content.Position         = UDim2.new(0, 6, 0, 36)
+    Content.BackgroundTransparency = 1
+    Content.Parent           = Main
+
+    local Grid = Instance.new("UIGridLayout")
+    Grid.CellSize            = UDim2.new(0, 84, 0, 26)
+    Grid.CellPaddingH        = UDim.new(0, 6)
+    Grid.CellPadding         = UDim2.new(0, 6, 0, 6)
+    Grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    Grid.SortOrder           = Enum.SortOrder.LayoutOrder
+    Grid.Parent              = Content
+
+    -- Tombol tiap mask
+    for i, mask in ipairs(MASK_DATA) do
+        local btn = Instance.new("TextButton")
+        btn.Name             = mask.arg
+        btn.LayoutOrder      = i
+        btn.BackgroundColor3 = Color3.fromRGB(38, 38, 58)
+        btn.Text             = mask.label
+        btn.TextColor3       = Color3.fromRGB(210, 210, 255)
+        btn.Font             = Enum.Font.GothamBold
+        btn.TextSize         = 10
+        btn.BorderSizePixel  = 0
+        btn.Parent           = Content
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
+        local s2 = Instance.new("UIStroke", btn)
+        s2.Color     = Color3.fromRGB(90, 90, 140)
+        s2.Thickness = 1
+
+        btn.MouseButton1Click:Connect(function()
+            FireMask(mask.arg)
+            MugiHub:SetNotification({
+                Title = "The Masked", Description = "Power Activated",
+                Content = "Switched to: " .. mask.label, Delay = 3
+            })
+            -- Highlight tombol yang dipilih
+            for _, b in ipairs(Content:GetChildren()) do
+                if b:IsA("TextButton") then
+                    b.BackgroundColor3 = Color3.fromRGB(38, 38, 58)
+                end
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(70, 50, 130)
+        end)
+    end
+
+    local rows      = math.ceil(#MASK_DATA / 2)
+    local contentH  = rows * 26 + (rows - 1) * 6 + 10
+    local OPEN_H    = 32 + contentH + 8
+    local CLOSE_H   = 32
+
+    MinBtn.MouseButton1Click:Connect(function()
+        isOpen = not isOpen
+        MinBtn.Text = isOpen and "-" or "+"
+        local targetH = isOpen and OPEN_H or CLOSE_H
+        -- Tween ukuran frame
+        local ts = game:GetService("TweenService")
+        ts:Create(Main, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 200, 0, targetH)}):Play()
+    end)
+
+    -- Draggable
+    local dragging, dragStart, startPos = false, nil, nil
+    TitleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = Main.Position
+        end
+    end)
+    TitleBar.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            Main.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    MaskGui = ScreenGui
+end
+
+MaskedSection:AddToggle({
+    Title   = "Mask Options",
+    Content = "Show / hide mask switcher GUI",
+    Default = false,
+    Callback = function(state)
+        if state then
+            if not CheckIsMasked() then
+                MugiHub:SetNotification({
+                    Title       = "The Masked",
+                    Description = "You don't use killer masked",
+                    Content     = "Select The Masked as your killer first.",
+                    Delay       = 4
+                })
+                return
+            end
+            BuildMaskGui()
+        else
+            if MaskGui and MaskGui.Parent then
+                MaskGui:Destroy()
+                MaskGui = nil
+            end
+        end
+    end
+})
+
+----------------------------------------------------------------
 -- == TAB: ESP ==
 ----------------------------------------------------------------
 local RunService2 = game:GetService("RunService")
@@ -816,8 +1178,7 @@ local function ESP_StopLoop()
     ESP_ClearAll()
 end
 
--- ICONS
-local ESPTab = Window:CreateTab({"ESP", "rbxassetid://7733774602"}) -- lucide "eye"
+local ESPTab = Window:CreateTab({"ESP", ICONS.ESP})
 
 -- Section: Enabled ESP
 local ESPEnableSection = ESPTab:AddSection("Enabled ESP", false)
