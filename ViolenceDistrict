@@ -383,7 +383,7 @@ GenSection:AddToggle({
     end
 })
 
-GenSection:AddSeparator("Instant Complete")
+GenSection:AddSeperator({"Instant Complete"})
 
 GenSection:AddButton({
     Title   = "Complete All Generators",
