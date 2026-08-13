@@ -467,14 +467,19 @@ GateSection:AddButton({
             return
         end
 
-        -- Cari "Fininsline" di seluruh Workspace (termasuk di dalam folder Map)
+        -- Cari "Fininsline" / "Fininsline" di seluruh Workspace
         local target = nil
+        local NAMES  = {"Fininsline", "Fininshline"}
 
         local function SearchIn(parent)
             for _, obj in ipairs(parent:GetDescendants()) do
-                if obj.Name == "Fininsline" and obj:IsA("BasePart") then
-                    target = obj
-                    return
+                if obj:IsA("BasePart") then
+                    for _, n in ipairs(NAMES) do
+                        if obj.Name == n then
+                            target = obj
+                            return
+                        end
+                    end
                 end
             end
         end
@@ -751,7 +756,6 @@ local function BuildMaskGui()
 
     local Grid = Instance.new("UIGridLayout")
     Grid.CellSize            = UDim2.new(0, 84, 0, 26)
-    Grid.CellPaddingH        = UDim.new(0, 6)
     Grid.CellPadding         = UDim2.new(0, 6, 0, 6)
     Grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
     Grid.SortOrder           = Enum.SortOrder.LayoutOrder
@@ -965,7 +969,6 @@ local function ESP_RemovePlayerLabel(char)
 end
 
 -- Generator progress bar billboard
--- Bar mengecil/melebar sesuai jarak, warna smooth merah→hijau
 local function ESP_UpdateGenBar(gen)
     if not gen or not gen.Parent then return true end
 
@@ -974,7 +977,6 @@ local function ESP_UpdateGenBar(gen)
                   or 0
     progress = math.clamp(progress, 0, 100)
 
-    -- Kalau sudah 100%, hapus
     if progress >= 100 then
         local bb = gen:FindFirstChild("MugiESP_GenBar")
         if bb then bb:Destroy() end
@@ -983,19 +985,19 @@ local function ESP_UpdateGenBar(gen)
     end
 
     -- Hitung jarak
-    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myHRP  = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local genPart = gen:FindFirstChildWhichIsA("BasePart")
-    local dist = 0
+    local dist   = 0
     if myHRP and genPart then
         dist = (myHRP.Position - genPart.Position).Magnitude
     end
 
-    -- Skala bar: makin jauh makin sempit (min 30px, max 110px)
-    local maxDist   = 200
-    local minWidth  = 30
-    local maxWidth  = 110
-    local t         = math.clamp(1 - (dist / maxDist), 0, 1)
-    local barWidth  = minWidth + (maxWidth - minWidth) * t
+    -- Skala bar: dekat = lebar (80px), jauh = sempit (18px)
+    local maxDist  = 200
+    local minWidth = 18
+    local maxWidth = 80
+    local t        = math.clamp(1 - (dist / maxDist), 0, 1)
+    local barWidth = minWidth + (maxWidth - minWidth) * t
 
     -- Warna smooth merah → kuning → hijau
     local r, g
@@ -1013,49 +1015,69 @@ local function ESP_UpdateGenBar(gen)
     -- Billboard
     local bb = gen:FindFirstChild("MugiESP_GenBar")
     if not bb then
-        bb = Instance.new("BillboardGui")
-        bb.Name        = "MugiESP_GenBar"
+        bb            = Instance.new("BillboardGui")
+        bb.Name       = "MugiESP_GenBar"
         bb.AlwaysOnTop = true
         bb.StudsOffset = Vector3.new(0, 4.5, 0)
-        bb.Parent      = gen
+        bb.Parent     = gen
 
-        -- Background bar (abu gelap)
+        -- Background track (gelap, UIStroke border)
         local bg = Instance.new("Frame", bb)
-        bg.Name                  = "BG"
-        bg.BackgroundColor3      = Color3.fromRGB(30, 30, 30)
-        bg.BorderSizePixel       = 0
-        bg.AnchorPoint           = Vector2.new(0.5, 0.5)
-        bg.Position              = UDim2.new(0.5, 0, 0.5, 0)
-        Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
-        local stroke = Instance.new("UIStroke", bg)
-        stroke.Color     = Color3.fromRGB(60, 60, 60)
-        stroke.Thickness = 1
+        bg.Name               = "BG"
+        bg.BackgroundColor3   = Color3.fromRGB(20, 20, 20)
+        bg.BorderSizePixel    = 0
+        bg.AnchorPoint        = Vector2.new(0, 0.5)
+        bg.Position           = UDim2.new(0, 0, 0.5, 0)
+        local bgStroke        = Instance.new("UIStroke", bg)
+        bgStroke.Color        = Color3.fromRGB(80, 80, 80)
+        bgStroke.Thickness    = 1
 
-        -- Fill bar
+        -- Fill bar (kiri ke kanan)
         local fill = Instance.new("Frame", bg)
         fill.Name             = "Fill"
         fill.BackgroundColor3 = barColor
         fill.BorderSizePixel  = 0
-        fill.AnchorPoint      = Vector2.new(0, 0.5)
-        fill.Position         = UDim2.new(0, 0, 0.5, 0)
-        Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+        fill.AnchorPoint      = Vector2.new(0, 0)
+        fill.Position         = UDim2.new(0, 0, 0, 0)
+        fill.Size             = UDim2.new(0, 0, 1, 0)
+
+        -- Label % di kanan bar
+        local pct = Instance.new("TextLabel", bb)
+        pct.Name                   = "Pct"
+        pct.BackgroundTransparency = 1
+        pct.AnchorPoint            = Vector2.new(0, 0.5)
+        pct.Position               = UDim2.new(0, 0, 0.5, 0) -- diupdate tiap frame
+        pct.Size                   = UDim2.new(0, 28, 0, 10)
+        pct.Font                   = Enum.Font.GothamBold
+        pct.TextSize               = 8
+        pct.TextColor3             = Color3.fromRGB(220, 220, 220)
+        pct.TextStrokeTransparency = 0
+        pct.TextStrokeColor3       = Color3.new(0, 0, 0)
+        pct.TextXAlignment         = Enum.TextXAlignment.Left
     end
 
-    -- Update ukuran billboard & bar berdasarkan jarak
-    bb.Size = UDim2.new(0, barWidth + 8, 0, 14)
+    -- Update tiap frame
+    local totalW = barWidth + 32 -- bar + label %
+    bb.Size = UDim2.new(0, totalW, 0, 10)
 
     local bg   = bb:FindFirstChild("BG")
     local fill = bg and bg:FindFirstChild("Fill")
+    local pct  = bb:FindFirstChild("Pct")
+
     if bg then
-        bg.Size = UDim2.new(0, barWidth, 0, 8)
+        bg.Size     = UDim2.new(0, barWidth, 0, 6)
+        bg.Position = UDim2.new(0, 0, 0.5, 0)
     end
     if fill then
-        -- Smooth color update
-        fill.Size             = UDim2.new(progress / 100, 0, 1, 0)
+        local fillW = math.floor(barWidth * (progress / 100))
+        fill.Size             = UDim2.new(0, fillW, 1, 0)
         fill.BackgroundColor3 = barColor
     end
+    if pct then
+        pct.Text     = math.floor(progress) .. "%"
+        pct.Position = UDim2.new(0, barWidth + 4, 0.5, 0)
+    end
 
-    -- Highlight generator pakai warna progress juga
     if ESP_Generators then
         ESP_ApplyHighlight(gen, barColor)
     end
