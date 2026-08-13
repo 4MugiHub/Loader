@@ -21,15 +21,15 @@ local LocalPlayer = Players.LocalPlayer
 
 ----------------------------------------------------------------
 -- ICONS (Lucide via icons.rest)
--- Main      : lucide "home"           rbxassetid://7733960981
--- Survivors : lucide "person-running" rbxassetid://7734001284
--- Killer    : lucide "skull"          rbxassetid://7733931715
--- ESP       : lucide "eye"            rbxassetid://7733774602
+-- Main      : lucide "house"         rbxassetid://7733960981
+-- Survivors : lucide "footprints"    rbxassetid://7734070860
+-- Killer    : lucide "sword"         rbxassetid://7734038774
+-- ESP       : lucide "eye"           rbxassetid://7733774602
 ----------------------------------------------------------------
 local ICONS = {
     Main      = "rbxassetid://7733960981",
-    Survivors = "rbxassetid://7734001284",
-    Killer    = "rbxassetid://7733931715",
+    Survivors = "rbxassetid://7734070860",
+    Killer    = "rbxassetid://7734038774",
     ESP       = "rbxassetid://7733774602",
 }
 
@@ -43,7 +43,6 @@ local _executorName = (identifyexecutor and identifyexecutor()) or
 local Window = MugiHub:CreateWindow({
     Title       = "Mugi Hub",
     Description = "Peaceful Games",
-    Icon        = ICONS.Main,
     Tags        = {"v1.0", "VD | Freemium", "Executor: " .. _executorName}
 })
 
@@ -469,7 +468,7 @@ GateSection:AddButton({
 
         -- Cari "Fininsline" / "Fininsline" di seluruh Workspace
         local target = nil
-        local NAMES  = {"Fininsline", "Fininshline"}
+        local NAMES  = {"Fininshline", "Fininsline"}
 
         local function SearchIn(parent)
             for _, obj in ipairs(parent:GetDescendants()) do
@@ -499,12 +498,12 @@ GateSection:AddButton({
             hrp.CFrame = target.CFrame + Vector3.new(0, 4, 0)
             MugiHub:SetNotification({
                 Title = "Bypass Gate", Description = "Success",
-                Content = "Teleported to Fininsline.", Delay = 3
+                Content = "Teleported to Fininshline.", Delay = 3
             })
         else
             MugiHub:SetNotification({
                 Title = "Bypass Gate", Description = "Failed",
-                Content = "Fininsline not found in the map.", Delay = 3
+                Content = "Fininshline not found in the map.", Delay = 3
             })
         end
     end
@@ -648,7 +647,7 @@ AutoAtkSection:AddSlider({
 ----------------------------------------------------------------
 -- Section: The Masked
 ----------------------------------------------------------------
-local MaskedSection = KillerTab:AddSection("The Masked", false)
+local MaskedSection = KillerTab:AddSection("Killer Movement", false)
 
 -- Data mask
 local MASK_DATA = {
@@ -992,11 +991,11 @@ local function ESP_UpdateGenBar(gen)
         dist = (myHRP.Position - genPart.Position).Magnitude
     end
 
-    -- Skala bar: dekat = lebar (80px), jauh = sempit (18px)
-    local maxDist  = 200
-    local minWidth = 18
-    local maxWidth = 80
-    local t        = math.clamp(1 - (dist / maxDist), 0, 1)
+    -- Skala bar: dekat = lebar (90px), jauh = sempit (20px)
+    local maxDist  = 150
+    local minWidth = 20
+    local maxWidth = 90
+    local t        = math.clamp(1 - (dist / maxDist), 0, 1)  -- dekat = t tinggi = bar lebar
     local barWidth = minWidth + (maxWidth - minWidth) * t
 
     -- Warna smooth merah → kuning → hijau
