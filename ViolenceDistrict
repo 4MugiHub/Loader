@@ -43,7 +43,7 @@ local _executorName = (identifyexecutor and identifyexecutor()) or
 local Window = MugiHub:CreateWindow({
     Title       = "Mugi Hub",
     Description = "Peaceful Games",
-    Icon        = ICONS.Main,
+    -- Icon tidak diisi manual -> otomatis pakai icon resmi MugiHub (bawaan library)
     Tags        = {"v1.0", "VD | Freemium", "Executor: " .. _executorName}
 })
 
@@ -350,10 +350,10 @@ end
 GenSection:AddDropdown({
     Title   = "SkillCheck",
     Content = "Select skill check mode",
-    List    = {"Instant", "Legit"},
-    Default = "Instant",
+    Options = {"Instant", "Legit"},
+    Default = {"Instant"},
     Callback = function(value)
-        SC_Mode = value
+        SC_Mode = value[1] -- MugiHub selalu ngirim table (support multi-select), ambil elemen pertama
         -- kalau lagi aktif, restart supaya mode baru langsung kepake
         if SC_Enabled then
             StartSkillCheck()
@@ -523,7 +523,6 @@ RunService.Heartbeat:Connect(function()
                 Description = "You Are On Team Survivors",
                 Content     = "Stay hidden. Fix generators. Escape.",
                 Delay       = 5,
-                Color       = Color3.fromRGB(64, 180, 255),
             })
         elseif teamName == "Killer" or teamName == "Killers" then
             MugiHub:SetNotification({
@@ -531,7 +530,6 @@ RunService.Heartbeat:Connect(function()
                 Description = "You Are On Team Killer",
                 Content     = "Hunt them down. Let none escape.",
                 Delay       = 5,
-                Color       = Color3.fromRGB(220, 50, 50),
             })
         end
     end
@@ -1256,21 +1254,21 @@ local ESPColorSection = ESPTab:AddSection("Color ESP", false)
 ESPColorSection:AddDropdown({
     Title   = "Survivors Color",
     Content = "Highlight color for survivors",
-    List    = ESP_ColorList,
-    Default = "Cyan",
-    Callback = function(v) ESP_SurvColor = ESP_Colors[v] end
+    Options = ESP_ColorList,
+    Default = {"Cyan"},
+    Callback = function(value) ESP_SurvColor = ESP_Colors[value[1]] end
 })
 ESPColorSection:AddDropdown({
     Title   = "Killers Color",
     Content = "Highlight color for killers",
-    List    = ESP_ColorList,
-    Default = "Red",
-    Callback = function(v) ESP_KillColor = ESP_Colors[v] end
+    Options = ESP_ColorList,
+    Default = {"Red"},
+    Callback = function(value) ESP_KillColor = ESP_Colors[value[1]] end
 })
 ESPColorSection:AddDropdown({
     Title   = "Generators Color",
     Content = "Fallback color when progress bar is off",
-    List    = ESP_ColorList,
-    Default = "Orange",
-    Callback = function(v) ESP_GenColor = ESP_Colors[v] end
+    Options = ESP_ColorList,
+    Default = {"Orange"},
+    Callback = function(value) ESP_GenColor = ESP_Colors[value[1]] end
 })
