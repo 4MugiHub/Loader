@@ -76,8 +76,7 @@ MainSection:AddButton({
 
         MugiHub:SetNotification({
             Title       = "Back To Lobby",
-            Description = ok and "Success" or "Failed",
-            Content     = ok and "Character reload event fired." or tostring(err),
+            Description = ok and "Heading back to the lobby" or "Something went wrong",
             Time        = 0.35,
             Delay       = 3
         })
@@ -94,8 +93,7 @@ MainSection:AddButton({
 
         if not hrp then
             MugiHub:SetNotification({
-                Title = "TP Lobby", Description = "Failed",
-                Content = "HumanoidRootPart not found.", Delay = 3
+                Title = "TP Lobby", Description = "Can't find your character", Delay = 3
             })
             return
         end
@@ -119,13 +117,11 @@ MainSection:AddButton({
             hrp.CFrame = targetCFrame
 
             MugiHub:SetNotification({
-                Title = "TP Lobby", Description = "Success",
-                Content = "Teleported to SpawnLocation.", Delay = 3
+                Title = "TP Lobby", Description = "You're back at the lobby", Delay = 3
             })
         else
             MugiHub:SetNotification({
-                Title = "TP Lobby", Description = "Failed",
-                Content = "No part/model named 'SpawnLocation' found in Workspace.", Delay = 3
+                Title = "TP Lobby", Description = "Spawn point not found", Delay = 3
             })
         end
     end
@@ -137,8 +133,7 @@ MainSection:AddButton({
     Content = "Rejoin the current server",
     Callback = function()
         MugiHub:SetNotification({
-            Title = "Rejoin", Description = "Rejoining...",
-            Content = "You will be reconnected to this server shortly.", Delay = 3
+            Title = "Rejoin", Description = "Reconnecting to this server", Delay = 3
         })
         task.wait(1)
         TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
@@ -160,8 +155,7 @@ MainSection:AddButton({
 
         if not ok or not result or not result.data then
             MugiHub:SetNotification({
-                Title = "Server Hop", Description = "Error",
-                Content = "Could not fetch the server list.", Delay = 3
+                Title = "Server Hop", Description = "Couldn't reach server list", Delay = 3
             })
             return
         end
@@ -175,16 +169,14 @@ MainSection:AddButton({
 
         if #candidates == 0 then
             MugiHub:SetNotification({
-                Title = "Server Hop", Description = "Failed",
-                Content = "No other available server found.", Delay = 3
+                Title = "Server Hop", Description = "No other servers available", Delay = 3
             })
             return
         end
 
         local chosen = candidates[math.random(1, #candidates)]
         MugiHub:SetNotification({
-            Title = "Server Hop", Description = "Hopping...",
-            Content = "Teleporting to a new server.", Delay = 3
+            Title = "Server Hop", Description = "Jumping to another server", Delay = 3
         })
         task.wait(1)
         TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen.id, LocalPlayer)
@@ -206,8 +198,7 @@ MainSection:AddButton({
 
         if not ok or not result or not result.data then
             MugiHub:SetNotification({
-                Title = "Small Server", Description = "Error",
-                Content = "Could not fetch the server list.", Delay = 3
+                Title = "Small Server", Description = "Couldn't reach server list", Delay = 3
             })
             return
         end
@@ -223,8 +214,7 @@ MainSection:AddButton({
 
         if not best then
             MugiHub:SetNotification({
-                Title = "Small Server", Description = "Failed",
-                Content = "No available server found.", Delay = 3
+                Title = "Small Server", Description = "No quiet servers found", Delay = 3
             })
             return
         end
@@ -369,14 +359,12 @@ GenSection:AddToggle({
         if SC_Enabled then
             StartSkillCheck()
             MugiHub:SetNotification({
-                Title = "Auto Generators", Description = "SkillCheck ON",
-                Content = "Mode: " .. SC_Mode, Delay = 3
+                Title = "Auto Generators", Description = "Skill checks on, mode: " .. SC_Mode, Delay = 3
             })
         else
             StopAll()
             MugiHub:SetNotification({
-                Title = "Auto Generators", Description = "SkillCheck OFF",
-                Content = "Auto skill check disabled.", Delay = 3
+                Title = "Auto Generators", Description = "Skill checks off", Delay = 3
             })
         end
     end
@@ -390,8 +378,7 @@ GenSection:AddButton({
     Callback = function()
         if not IsSurvivor() then
             MugiHub:SetNotification({
-                Title = "Auto Generators", Description = "Failed",
-                Content = "You must be a Survivor.", Delay = 3
+                Title = "Auto Generators", Description = "Survivors only", Delay = 3
             })
             return
         end
@@ -399,8 +386,7 @@ GenSection:AddButton({
         local map = Workspace:FindFirstChild("Map")
         if not map then
             MugiHub:SetNotification({
-                Title = "Auto Generators", Description = "Failed",
-                Content = "Map not found.", Delay = 3
+                Title = "Auto Generators", Description = "Map not loaded yet", Delay = 3
             })
             return
         end
@@ -412,8 +398,7 @@ GenSection:AddButton({
 
         if not repairEvent or not skillCheckEvent then
             MugiHub:SetNotification({
-                Title = "Auto Generators", Description = "Failed",
-                Content = "Remotes not found.", Delay = 3
+                Title = "Auto Generators", Description = "Game not ready yet", Delay = 3
             })
             return
         end
@@ -437,10 +422,9 @@ GenSection:AddButton({
 
         MugiHub:SetNotification({
             Title = "Auto Generators",
-            Description = completed > 0 and "Success" or "Failed",
-            Content = completed > 0
-                and string.format("Completed %d generator point(s).", completed)
-                or "No generator points found.",
+            Description = completed > 0
+                and string.format("All generators done! (%d points)", completed)
+                or "No generator points found",
             Delay = 3
         })
     end
@@ -460,8 +444,7 @@ GateSection:AddButton({
 
         if not hrp then
             MugiHub:SetNotification({
-                Title = "Bypass Gate", Description = "Failed",
-                Content = "HumanoidRootPart not found.", Delay = 3
+                Title = "Bypass Gate", Description = "Can't find your character", Delay = 3
             })
             return
         end
@@ -497,13 +480,11 @@ GateSection:AddButton({
         if target then
             hrp.CFrame = target.CFrame + Vector3.new(0, 4, 0)
             MugiHub:SetNotification({
-                Title = "Bypass Gate", Description = "Success",
-                Content = "Teleported to Fininshline.", Delay = 3
+                Title = "Bypass Gate", Description = "Success Bypass Gate", Delay = 3
             })
         else
             MugiHub:SetNotification({
-                Title = "Bypass Gate", Description = "Failed",
-                Content = "Fininshline not found in the map.", Delay = 3
+                Title = "Bypass Gate", Description = "Exit line not found yet", Delay = 3
             })
         end
     end
@@ -614,22 +595,19 @@ AutoAtkSection:AddToggle({
         if state then
             if not IsKiller() then
                 MugiHub:SetNotification({
-                    Title = "Auto Attack", Description = "Failed",
-                    Content = "You must be on Team Killer.", Delay = 3
+                    Title = "Auto Attack", Description = "You're not the killer", Delay = 3
                 })
                 AA_Enabled = false
                 return
             end
             AA_Start()
             MugiHub:SetNotification({
-                Title = "Auto Attack", Description = "ON",
-                Content = "Range: " .. AA_Range .. " studs", Delay = 3
+                Title = "Auto Attack", Description = "Auto attacking within " .. AA_Range .. " studs", Delay = 3
             })
         else
             AA_Stop()
             MugiHub:SetNotification({
-                Title = "Auto Attack", Description = "OFF",
-                Content = "Auto attack disabled.", Delay = 3
+                Title = "Auto Attack", Description = "Auto attack off", Delay = 3
             })
         end
     end
@@ -780,8 +758,7 @@ local function BuildMaskGui()
         btn.MouseButton1Click:Connect(function()
             FireMask(mask.arg)
             MugiHub:SetNotification({
-                Title = "The Masked", Description = "Power Activated",
-                Content = "Switched to: " .. mask.label, Delay = 3
+                Title = "Killer Movement", Description = "Switched to " .. mask.label, Delay = 3
             })
             -- Highlight tombol yang dipilih
             for _, b in ipairs(Content:GetChildren()) do
@@ -845,9 +822,8 @@ MaskedSection:AddToggle({
         if state then
             if not CheckIsMasked() then
                 MugiHub:SetNotification({
-                    Title       = "The Masked",
-                    Description = "You don't use killer masked",
-                    Content     = "Select The Masked as your killer first.",
+                    Title       = "Killer Movement",
+                    Description = "You're not using The Masked",
                     Delay       = 4
                 })
                 return
@@ -1210,10 +1186,10 @@ ESPEnableSection:AddToggle({
         ESP_Enabled = state
         if state then
             ESP_StartLoop()
-            MugiHub:SetNotification({ Title="ESP", Description="ON", Content="ESP activated.", Delay=3 })
+            MugiHub:SetNotification({ Title="ESP", Description="ESP on", Delay=3 })
         else
             ESP_StopLoop()
-            MugiHub:SetNotification({ Title="ESP", Description="OFF", Content="ESP disabled.", Delay=3 })
+            MugiHub:SetNotification({ Title="ESP", Description="ESP off", Delay=3 })
         end
     end
 })
