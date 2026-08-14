@@ -290,12 +290,21 @@ local function HeartbeatLegit()
     end
 end
 
--- INSTANT: langsung press begitu Check visible
+-- INSTANT: press Space setiap frame selama Check visible (handle KS multiple checks)
+local function HeartbeatInstant()
+    if not IsSurvivor() then StopSkillCheck(); return end
+    if not Check.Visible then StopSkillCheck(); return end
+    PressSpace()
+end
+
 local function OnCheckVisibleInstant()
     if not SC_Enabled then return end
     if not IsSurvivor() then return end
     if Check.Visible then
-        PressSpace()
+        StopSkillCheck()
+        SC_Conn = RunService.Heartbeat:Connect(HeartbeatInstant)
+    else
+        StopSkillCheck()
     end
 end
 
@@ -437,11 +446,19 @@ local GateSection = SurvivorsTab:AddSection("Bypass Gate", false)
 
 GateSection:AddButton({
     Title   = "Bypass Gate",
-    Content = "Teleport to Fininsline part in the map",
+    Content = "Rush straight to the exit",
     Callback = function()
+        -- Cek tim dulu
+        local teamName = LocalPlayer.Team and LocalPlayer.Team.Name or ""
+        if teamName ~= "Survivors" and teamName ~= "Survivor" then
+            MugiHub:SetNotification({
+                Title = "Bypass Gate", Description = "Survivors only", Delay = 3
+            })
+            return
+        end
+
         local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         local hrp = character:FindFirstChild("HumanoidRootPart")
-
         if not hrp then
             MugiHub:SetNotification({
                 Title = "Bypass Gate", Description = "Can't find your character", Delay = 3
@@ -449,7 +466,6 @@ GateSection:AddButton({
             return
         end
 
-        -- Cari "Fininsline" / "Fininsline" di seluruh Workspace
         local target = nil
         local NAMES  = {"Fininshline", "Fininsline"}
 
@@ -466,16 +482,9 @@ GateSection:AddButton({
             end
         end
 
-        -- 1. Cari di dalam folder/model Map kalau ada
         local mapFolder = Workspace:FindFirstChild("Map")
-        if mapFolder then
-            SearchIn(mapFolder)
-        end
-
-        -- 2. Kalau belum ketemu, cari seluruh Workspace
-        if not target then
-            SearchIn(Workspace)
-        end
+        if mapFolder then SearchIn(mapFolder) end
+        if not target then SearchIn(Workspace) end
 
         if target then
             hrp.CFrame = target.CFrame + Vector3.new(0, 4, 0)
@@ -686,8 +695,8 @@ local function BuildMaskGui()
     Main.Parent              = ScreenGui
     Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
     local stroke = Instance.new("UIStroke", Main)
-    stroke.Color     = Color3.fromRGB(80, 80, 120)
-    stroke.Thickness = 1.5
+    stroke.Color     = Color3.fromRGB(50, 50, 55)
+    stroke.Thickness = 1.2
 
     -- Title bar
     local TitleBar = Instance.new("Frame")
@@ -752,7 +761,7 @@ local function BuildMaskGui()
         btn.Parent           = Content
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
         local s2 = Instance.new("UIStroke", btn)
-        s2.Color     = Color3.fromRGB(90, 90, 140)
+        s2.Color     = Color3.fromRGB(50, 50, 55)
         s2.Thickness = 1
 
         btn.MouseButton1Click:Connect(function()
@@ -848,6 +857,10 @@ local ESP_Enabled        = false
 local ESP_Survivors      = true
 local ESP_Killers        = true
 local ESP_Generators     = true
+local ESP_Hooks          = true
+local ESP_Pallets        = true
+local ESP_Windows        = true
+local ESP_Gates          = true
 local ESP_ShowDistSurv   = true
 local ESP_ShowDistKill   = true
 local ESP_ShowGenProg    = true
@@ -873,6 +886,10 @@ local ESP_ColorList = {"White","Pink","Purple","Green","Cyan","Orange","Yellow",
 local ESP_SurvColor = ESP_Colors.Cyan
 local ESP_KillColor = ESP_Colors.Red
 local ESP_GenColor  = ESP_Colors.Orange
+local ESP_HookColor = ESP_Colors.Green
+local ESP_PalletColor = ESP_Colors.Yellow
+local ESP_WindowColor = ESP_Colors.Sky
+local ESP_GateColor   = ESP_Colors.White
 
 -- Helper: GetGameValue (attribute atau Value child)
 local function ESP_GetValue(obj, name)
@@ -967,11 +984,11 @@ local function ESP_UpdateGenBar(gen)
         dist = (myHRP.Position - genPart.Position).Magnitude
     end
 
-    -- Skala bar: dekat = lebar (90px), jauh = sempit (20px)
+    -- Skala bar: dekat = lebar (70px), jauh = sempit (20px)
     local maxDist  = 150
     local minWidth = 20
-    local maxWidth = 90
-    local t        = math.clamp(1 - (dist / maxDist), 0, 1)  -- dekat = t tinggi = bar lebar
+    local maxWidth = 70
+    local t        = math.clamp(1 - (dist / maxDist), 0, 1)
     local barWidth = minWidth + (maxWidth - minWidth) * t
 
     -- Warna smooth merah → kuning → hijau
@@ -993,7 +1010,7 @@ local function ESP_UpdateGenBar(gen)
         bb            = Instance.new("BillboardGui")
         bb.Name       = "MugiESP_GenBar"
         bb.AlwaysOnTop = true
-        bb.StudsOffset = Vector3.new(0, 4.5, 0)
+        bb.StudsOffset = Vector3.new(0, 2.5, 0)
         bb.Parent     = gen
 
         -- Background track (gelap, UIStroke border)
@@ -1032,15 +1049,15 @@ local function ESP_UpdateGenBar(gen)
     end
 
     -- Update tiap frame
-    local totalW = barWidth + 32 -- bar + label %
-    bb.Size = UDim2.new(0, totalW, 0, 10)
+    local totalW = barWidth + 32
+    bb.Size = UDim2.new(0, totalW, 0, 14)
 
     local bg   = bb:FindFirstChild("BG")
     local fill = bg and bg:FindFirstChild("Fill")
     local pct  = bb:FindFirstChild("Pct")
 
     if bg then
-        bg.Size     = UDim2.new(0, barWidth, 0, 6)
+        bg.Size     = UDim2.new(0, barWidth, 0, 10)
         bg.Position = UDim2.new(0, 0, 0.5, 0)
     end
     if fill then
@@ -1054,7 +1071,7 @@ local function ESP_UpdateGenBar(gen)
     end
 
     if ESP_Generators then
-        ESP_ApplyHighlight(gen, barColor)
+        ESP_ApplyHighlight(gen, ESP_GenColor)
     end
 
     return false
@@ -1068,25 +1085,27 @@ local function ESP_RefreshObjects()
     for _, obj in ipairs(map:GetDescendants()) do
         if obj.Name == "Generator" and obj:IsA("Model") then
             table.insert(ESP_ActiveGens, obj)
-        elseif obj.Name == "Hook" then
+        elseif obj.Name == "Hook" and ESP_Hooks then
             local m = obj:FindFirstChild("Model")
             if m then
                 for _, p in ipairs(m:GetDescendants()) do
                     if p:IsA("MeshPart") then
-                        ESP_ApplyHighlight(p, Color3.fromRGB(132, 255, 169))
+                        ESP_ApplyHighlight(p, ESP_HookColor)
                     end
                 end
             end
-        elseif obj.Name == "Palletwrong" or obj.Name == "Pallet" then
-            ESP_ApplyHighlight(obj, Color3.fromRGB(74, 255, 181))
-        elseif obj.Name == "Gate" then
-            ESP_ApplyHighlight(obj, Color3.fromRGB(255, 255, 255))
+        elseif (obj.Name == "Palletwrong" or obj.Name == "Pallet") and ESP_Pallets then
+            ESP_ApplyHighlight(obj, ESP_PalletColor)
+        elseif obj.Name == "Gate" and ESP_Gates then
+            ESP_ApplyHighlight(obj, ESP_GateColor)
         end
     end
-    -- Window di luar Map
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj.Name == "Window" then
-            ESP_ApplyHighlight(obj, Color3.fromRGB(74, 255, 181))
+    -- Window
+    if ESP_Windows then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj.Name == "Window" then
+                ESP_ApplyHighlight(obj, ESP_WindowColor)
+            end
         end
     end
 end
@@ -1220,6 +1239,80 @@ ESPObjSection:AddToggle({
         end
     end
 })
+ESPObjSection:AddToggle({
+    Title = "Hooks", Content = "Highlight hooks on the map",
+    Default = true,
+    Callback = function(state)
+        ESP_Hooks = state
+        if not state then
+            local map = Workspace:FindFirstChild("Map")
+            if map then
+                for _, obj in ipairs(map:GetDescendants()) do
+                    if obj.Name == "Hook" then
+                        local m = obj:FindFirstChild("Model")
+                        if m then
+                            for _, p in ipairs(m:GetDescendants()) do
+                                if p:IsA("MeshPart") then ESP_RemoveHighlight(p) end
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            ESP_RefreshObjects()
+        end
+    end
+})
+ESPObjSection:AddToggle({
+    Title = "Pallets", Content = "Highlight pallets on the map",
+    Default = true,
+    Callback = function(state)
+        ESP_Pallets = state
+        if not state then
+            local map = Workspace:FindFirstChild("Map")
+            if map then
+                for _, obj in ipairs(map:GetDescendants()) do
+                    if obj.Name == "Palletwrong" or obj.Name == "Pallet" then
+                        ESP_RemoveHighlight(obj)
+                    end
+                end
+            end
+        else
+            ESP_RefreshObjects()
+        end
+    end
+})
+ESPObjSection:AddToggle({
+    Title = "Windows", Content = "Highlight windows",
+    Default = true,
+    Callback = function(state)
+        ESP_Windows = state
+        if not state then
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj.Name == "Window" then ESP_RemoveHighlight(obj) end
+            end
+        else
+            ESP_RefreshObjects()
+        end
+    end
+})
+ESPObjSection:AddToggle({
+    Title = "Gates", Content = "Highlight exit gates",
+    Default = true,
+    Callback = function(state)
+        ESP_Gates = state
+        if not state then
+            local map = Workspace:FindFirstChild("Map")
+            if map then
+                for _, obj in ipairs(map:GetDescendants()) do
+                    if obj.Name == "Gate" then ESP_RemoveHighlight(obj) end
+                end
+            end
+        else
+            ESP_RefreshObjects()
+        end
+    end
+})
 
 -- Section: Settings ESP
 local ESPSettSection = ESPTab:AddSection("Settings ESP", false)
@@ -1265,8 +1358,48 @@ ESPColorSection:AddDropdown({
 })
 ESPColorSection:AddDropdown({
     Title   = "Generators Color",
-    Content = "Fallback color when progress bar is off",
+    Content = "Highlight color for generators",
     Options = ESP_ColorList,
     Default = {"Orange"},
     Callback = function(v) ESP_GenColor = ESP_Colors[v[1]] end
+})
+ESPColorSection:AddDropdown({
+    Title   = "Hooks Color",
+    Content = "Highlight color for hooks",
+    Options = ESP_ColorList,
+    Default = {"Green"},
+    Callback = function(v)
+        ESP_HookColor = ESP_Colors[v[1]]
+        ESP_RefreshObjects()
+    end
+})
+ESPColorSection:AddDropdown({
+    Title   = "Pallets Color",
+    Content = "Highlight color for pallets",
+    Options = ESP_ColorList,
+    Default = {"Yellow"},
+    Callback = function(v)
+        ESP_PalletColor = ESP_Colors[v[1]]
+        ESP_RefreshObjects()
+    end
+})
+ESPColorSection:AddDropdown({
+    Title   = "Windows Color",
+    Content = "Highlight color for windows",
+    Options = ESP_ColorList,
+    Default = {"Sky"},
+    Callback = function(v)
+        ESP_WindowColor = ESP_Colors[v[1]]
+        ESP_RefreshObjects()
+    end
+})
+ESPColorSection:AddDropdown({
+    Title   = "Gates Color",
+    Content = "Highlight color for exit gates",
+    Options = ESP_ColorList,
+    Default = {"White"},
+    Callback = function(v)
+        ESP_GateColor = ESP_Colors[v[1]]
+        ESP_RefreshObjects()
+    end
 })
