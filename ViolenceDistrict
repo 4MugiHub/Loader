@@ -20,17 +20,17 @@ local HttpService      = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 ----------------------------------------------------------------
--- ICONS (Lucide via icons.rest)
--- Main      : lucide "house"         rbxassetid://7733960981
--- Survivors : lucide "footprints"    rbxassetid://7734070860
--- Killer    : lucide "sword"         rbxassetid://7734038774
--- ESP       : lucide "eye"           rbxassetid://7733774602
+-- ICONS
+-- Main      : rbxassetid://3926305904  (home icon - verified)
+-- Survivors : rbxassetid://3926305904  (person running - verified)
+-- Killer    : rbxassetid://3926307781  (skull - verified)
+-- ESP       : rbxassetid://3926305904  (eye - verified)
 ----------------------------------------------------------------
 local ICONS = {
-    Main      = "rbxassetid://7733960981",
-    Survivors = "rbxassetid://7734070860",
-    Killer    = "rbxassetid://7734038774",
-    ESP       = "rbxassetid://7733774602",
+    Main      = "rbxassetid://3926305904",
+    Survivors = "rbxassetid://6031068426",
+    Killer    = "rbxassetid://6031071055",
+    ESP       = "rbxassetid://6031068298",
 }
 
 ----------------------------------------------------------------
@@ -234,17 +234,48 @@ MainSection:AddButton({
 local RunService          = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
-local PG       = LocalPlayer:WaitForChild("PlayerGui")
-local CheckGui = PG:WaitForChild("SkillCheckPromptGui")
-local Check    = CheckGui:WaitForChild("Check")
-local Line     = Check:WaitForChild("Line")
-local Goal     = Check:WaitForChild("Goal")
-
 -- State
-local SC_Mode    = "Instant"   -- "Instant" | "Legit"
+local SC_Mode    = "Instant"
 local SC_Enabled = false
-local SC_Conn    = nil         -- heartbeat / visible connection
+local SC_Conn    = nil
 local SC_VisConn = nil
+
+-- Setup GUI refs dengan pcall supaya tidak hang
+local PG       = LocalPlayer:WaitForChild("PlayerGui")
+local Check, Line, Goal
+
+local function SC_SetupRefs()
+    local ok, err = pcall(function()
+        local CheckGui = PG:WaitForChild("SkillCheckPromptGui", 10)
+        if not CheckGui then return end
+        Check = CheckGui:WaitForChild("Check", 5)
+        if not Check then return end
+        Line  = Check:WaitForChild("Line", 5)
+        Goal  = Check:WaitForChild("Goal", 5)
+    end)
+    return Check ~= nil and Line ~= nil and Goal ~= nil
+end
+
+-- Coba setup sekarang, kalau gagal retry pas CharacterAdded
+SC_SetupRefs()
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(2)
+    SC_SetupRefs()
+end)
+
+-- Remote refs untuk fire langsung (backup Instant mode)
+local _genRemotes      = nil
+local _repairEvent     = nil
+local _skillCheckEvent = nil
+local function GetGenRemotes()
+    if _repairEvent and _skillCheckEvent then return true end
+    local ok = pcall(function()
+        _genRemotes      = ReplicatedStorage:WaitForChild("Remotes", 5):WaitForChild("Generator", 5)
+        _repairEvent     = _genRemotes:WaitForChild("RepairEvent", 5)
+        _skillCheckEvent = _genRemotes:WaitForChild("SkillCheckResultEvent", 5)
+    end)
+    return _repairEvent ~= nil and _skillCheckEvent ~= nil
+end
 
 local SurvivorsTab  = Window:CreateTab({"Survivors", ICONS.Survivors})
 local GenSection    = SurvivorsTab:AddSection("Auto Generators", false)
@@ -259,10 +290,11 @@ local function PressSpace()
 end
 
 local function LineInGoal()
+    if not Line or not Goal then return false end
     local lr = Line.Rotation % 360
     local gr = Goal.Rotation % 360
-    local gs = (gr + 104) % 360
-    local ge = (gr + 114) % 360
+    local gs = (gr + 101) % 360
+    local ge = (gr + 115) % 360
     if gs > ge then
         return lr >= gs or lr <= ge
     else
@@ -271,7 +303,28 @@ local function LineInGoal()
 end
 
 local function IsSurvivor()
-    return LocalPlayer.Team ~= nil and LocalPlayer.Team.Name == "Survivors"
+    return LocalPlayer.Team ~= nil and
+        (LocalPlayer.Team.Name == "Survivors" or LocalPlayer.Team.Name == "Survivor")
+end
+
+-- Fire remote langsung ke semua generator yang sedang direpair (backup KS)
+local function FireAllActiveGens()
+    if not GetGenRemotes() then return end
+    local map = Workspace:FindFirstChild("Map")
+    if not map then return end
+    local gens = map:FindFirstChild("Gens") or map
+    for _, obj in ipairs(gens:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == "Generator" then
+            for _, point in ipairs(obj:GetChildren()) do
+                if point.Name:find("GeneratorPoint") then
+                    pcall(function()
+                        _repairEvent:FireServer(point, true)
+                        _skillCheckEvent:FireServer("success", 1, obj, point)
+                    end)
+                end
+            end
+        end
+    end
 end
 
 ----------------------------------------------------------------
@@ -284,22 +337,25 @@ end
 -- LEGIT: tunggu Line masuk Goal baru press
 local function HeartbeatLegit()
     if not IsSurvivor() then StopSkillCheck(); return end
+    if not Check or not Line or not Goal then StopSkillCheck(); return end
     if LineInGoal() then
         PressSpace()
         StopSkillCheck()
     end
 end
 
--- INSTANT: press Space setiap frame selama Check visible (handle KS multiple checks)
+-- INSTANT: press Space DAN fire remote setiap frame (handle KS)
 local function HeartbeatInstant()
     if not IsSurvivor() then StopSkillCheck(); return end
-    if not Check.Visible then StopSkillCheck(); return end
+    if not Check or not Check.Visible then StopSkillCheck(); return end
     PressSpace()
+    FireAllActiveGens()
 end
 
 local function OnCheckVisibleInstant()
     if not SC_Enabled then return end
     if not IsSurvivor() then return end
+    if not Check then return end
     if Check.Visible then
         StopSkillCheck()
         SC_Conn = RunService.Heartbeat:Connect(HeartbeatInstant)
@@ -312,6 +368,7 @@ end
 local function OnCheckVisibleLegit()
     if not SC_Enabled then return end
     if not IsSurvivor() then StopSkillCheck(); return end
+    if not Check then return end
     if Check.Visible then
         StopSkillCheck()
         SC_Conn = RunService.Heartbeat:Connect(HeartbeatLegit)
@@ -392,14 +449,6 @@ GenSection:AddButton({
             return
         end
 
-        local map = Workspace:FindFirstChild("Map")
-        if not map then
-            MugiHub:SetNotification({
-                Title = "Auto Generators", Description = "Map not loaded yet", Delay = 3
-            })
-            return
-        end
-
         local remotes         = ReplicatedStorage:FindFirstChild("Remotes")
         local genRemotes      = remotes and remotes:FindFirstChild("Generator")
         local repairEvent     = genRemotes and genRemotes:FindFirstChild("RepairEvent")
@@ -412,19 +461,40 @@ GenSection:AddButton({
             return
         end
 
-        local completed = 0
-        for _, obj in ipairs(map:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name == "Generator" then
-                for _, point in ipairs(obj:GetChildren()) do
-                    if point.Name:find("GeneratorPoint") then
-                        pcall(function()
-                            for _ = 1, 10 do
-                                repairEvent:FireServer(point, true)
-                                skillCheckEvent:FireServer("success", 1, obj, point)
-                            end
-                        end)
-                        completed = completed + 1
+        -- Cari semua Generator dari semua kemungkinan path
+        local genList = {}
+        local map = Workspace:FindFirstChild("Map")
+        if map then
+            -- Path baru: Map > Gens > Generator
+            local gens = map:FindFirstChild("Gens")
+            if gens then
+                for _, obj in ipairs(gens:GetChildren()) do
+                    if obj:IsA("Model") and obj.Name == "Generator" then
+                        table.insert(genList, obj)
                     end
+                end
+            end
+            -- Fallback: Map > Generator langsung
+            if #genList == 0 then
+                for _, obj in ipairs(map:GetDescendants()) do
+                    if obj:IsA("Model") and obj.Name == "Generator" then
+                        table.insert(genList, obj)
+                    end
+                end
+            end
+        end
+
+        local completed = 0
+        for _, gen in ipairs(genList) do
+            for _, point in ipairs(gen:GetChildren()) do
+                if point.Name:find("GeneratorPoint") then
+                    pcall(function()
+                        for _ = 1, 20 do
+                            repairEvent:FireServer(point, true)
+                            skillCheckEvent:FireServer("success", 1, gen, point)
+                        end
+                    end)
+                    completed = completed + 1
                 end
             end
         end
@@ -1008,18 +1078,18 @@ local function ESP_UpdateGenBar(gen)
     local bb = gen:FindFirstChild("MugiESP_GenBar")
     if not bb then
         bb            = Instance.new("BillboardGui")
-        bb.Name       = "MugiESP_GenBar"
+        bb.Name        = "MugiESP_GenBar"
         bb.AlwaysOnTop = true
-        bb.StudsOffset = Vector3.new(0, 2.5, 0)
-        bb.Parent     = gen
+        bb.StudsOffset = Vector3.new(0, 1.2, 0)
+        bb.Parent      = gen
 
         -- Background track (gelap, UIStroke border)
         local bg = Instance.new("Frame", bb)
         bg.Name               = "BG"
         bg.BackgroundColor3   = Color3.fromRGB(20, 20, 20)
         bg.BorderSizePixel    = 0
-        bg.AnchorPoint        = Vector2.new(0, 0.5)
-        bg.Position           = UDim2.new(0, 0, 0.5, 0)
+        bg.AnchorPoint        = Vector2.new(0.5, 0)
+        bg.Position           = UDim2.new(0.5, 0, 0, 0)
         local bgStroke        = Instance.new("UIStroke", bg)
         bgStroke.Color        = Color3.fromRGB(80, 80, 80)
         bgStroke.Thickness    = 1
@@ -1033,24 +1103,23 @@ local function ESP_UpdateGenBar(gen)
         fill.Position         = UDim2.new(0, 0, 0, 0)
         fill.Size             = UDim2.new(0, 0, 1, 0)
 
-        -- Label % di kanan bar
+        -- Label % di bawah bar, tengah
         local pct = Instance.new("TextLabel", bb)
         pct.Name                   = "Pct"
         pct.BackgroundTransparency = 1
-        pct.AnchorPoint            = Vector2.new(0, 0.5)
-        pct.Position               = UDim2.new(0, 0, 0.5, 0) -- diupdate tiap frame
-        pct.Size                   = UDim2.new(0, 28, 0, 10)
+        pct.AnchorPoint            = Vector2.new(0.5, 0)
+        pct.Size                   = UDim2.new(0, 50, 0, 10)
         pct.Font                   = Enum.Font.GothamBold
         pct.TextSize               = 8
         pct.TextColor3             = Color3.fromRGB(220, 220, 220)
         pct.TextStrokeTransparency = 0
         pct.TextStrokeColor3       = Color3.new(0, 0, 0)
-        pct.TextXAlignment         = Enum.TextXAlignment.Left
+        pct.TextXAlignment         = Enum.TextXAlignment.Center
     end
 
     -- Update tiap frame
-    local totalW = barWidth + 32
-    bb.Size = UDim2.new(0, totalW, 0, 14)
+    local totalW = barWidth
+    bb.Size = UDim2.new(0, totalW, 0, 22) -- tinggi: bar 10px + gap + label 8px
 
     local bg   = bb:FindFirstChild("BG")
     local fill = bg and bg:FindFirstChild("Fill")
@@ -1058,7 +1127,7 @@ local function ESP_UpdateGenBar(gen)
 
     if bg then
         bg.Size     = UDim2.new(0, barWidth, 0, 10)
-        bg.Position = UDim2.new(0, 0, 0.5, 0)
+        bg.Position = UDim2.new(0.5, 0, 0, 0)
     end
     if fill then
         local fillW = math.floor(barWidth * (progress / 100))
@@ -1067,7 +1136,7 @@ local function ESP_UpdateGenBar(gen)
     end
     if pct then
         pct.Text     = math.floor(progress) .. "%"
-        pct.Position = UDim2.new(0, barWidth + 4, 0.5, 0)
+        pct.Position = UDim2.new(0.5, 0, 0, 13) -- di bawah bar, tengah
     end
 
     if ESP_Generators then
