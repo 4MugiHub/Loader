@@ -637,15 +637,15 @@ AutoAtkSection:AddSlider({
 ----------------------------------------------------------------
 local MaskedSection = KillerTab:AddSection("Killer Movement", false)
 
--- Data mask
+-- Data mask (icon = potret karakter, ditampilkan di depan nama)
 local MASK_DATA = {
-    { arg = "Richard",  label = "Rooster"  },
-    { arg = "Tony",     label = "Tiger"    },
-    { arg = "Brandon",  label = "Panther"  },
-    { arg = "Cobra",    label = "Cobra"    },
-    { arg = "Richter",  label = "Rat"      },
-    { arg = "Rabbit",   label = "Rabbit"   },
-    { arg = "Alex",     label = "Chainsaw" },
+    { arg = "Richard",  label = "Rooster",  icon = "rbxassetid://16570406579" },
+    { arg = "Tony",     label = "Tiger",    icon = "rbxassetid://96793004678696" },
+    { arg = "Brandon",  label = "Panther",  icon = "rbxassetid://111928367372122" },
+    { arg = "Cobra",    label = "Cobra",    icon = "rbxassetid://15946288579" }, -- asumsi: pakai asset "Jake — Snake" (tematik cocok dgn Cobra)
+    { arg = "Richter",  label = "Rat",      icon = "rbxassetid://590245826" },
+    { arg = "Rabbit",   label = "Rabbit",   icon = "rbxassetid://103750154338014" },
+    { arg = "Alex",     label = "Chainsaw", icon = "rbxassetid://15946083863" },
 }
 
 local function FireMask(argName)
@@ -685,28 +685,29 @@ local function BuildMaskGui()
     ScreenGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
     ScreenGui.Parent          = PG2
 
-    -- Main Frame
+    -- Main Frame (persegi, TANPA UICorner — pakai UIStroke sebagai outline)
     local Main = Instance.new("Frame")
     Main.Name                = "Main"
-    Main.Size                = UDim2.new(0, 200, 0, 32)  -- collapsed by default
-    Main.Position            = UDim2.new(0.5, -100, 0.3, 0)
+    Main.Size                = UDim2.new(0, 220, 0, 32)  -- collapsed by default
+    Main.Position            = UDim2.new(0.5, -110, 0.3, 0)
     Main.BackgroundColor3    = Color3.fromRGB(18, 18, 24)
     Main.BorderSizePixel     = 0
     Main.ClipsDescendants    = true
     Main.Parent              = ScreenGui
-    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
-    local stroke = Instance.new("UIStroke", Main)
-    stroke.Color     = Color3.fromRGB(50, 50, 55)
-    stroke.Thickness = 1.2
+    local mainStroke = Instance.new("UIStroke", Main)
+    mainStroke.Color     = Color3.fromRGB(50, 50, 55)
+    mainStroke.Thickness = 1.5
 
-    -- Title bar
+    -- Title bar (persegi juga, tanpa UICorner)
     local TitleBar = Instance.new("Frame")
     TitleBar.Name             = "TitleBar"
     TitleBar.Size             = UDim2.new(1, 0, 0, 32)
     TitleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
     TitleBar.BorderSizePixel  = 0
     TitleBar.Parent           = Main
-    Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 10)
+    local titleStroke = Instance.new("UIStroke", TitleBar)
+    titleStroke.Color     = Color3.fromRGB(50, 50, 55)
+    titleStroke.Thickness = 1
 
     local TitleLabel = Instance.new("TextLabel")
     TitleLabel.Size                   = UDim2.new(1, -44, 1, 0)
@@ -719,7 +720,7 @@ local function BuildMaskGui()
     TitleLabel.TextXAlignment         = Enum.TextXAlignment.Left
     TitleLabel.Parent                 = TitleBar
 
-    -- Minimize button
+    -- Minimize button (persegi + UIStroke, tanpa UICorner)
     local isOpen  = false
     local MinBtn  = Instance.new("TextButton")
     MinBtn.Size                   = UDim2.new(0, 22, 0, 22)
@@ -731,39 +732,71 @@ local function BuildMaskGui()
     MinBtn.TextSize               = 13
     MinBtn.BorderSizePixel        = 0
     MinBtn.Parent                 = TitleBar
-    Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+    local minStroke = Instance.new("UIStroke", MinBtn)
+    minStroke.Color     = Color3.fromRGB(90, 90, 130)
+    minStroke.Thickness = 1
+
+    -- Garis pemisah antara TitleBar dan daftar mask
+    local Divider = Instance.new("Frame")
+    Divider.Name             = "Divider"
+    Divider.Size             = UDim2.new(1, -12, 0, 1)
+    Divider.Position         = UDim2.new(0, 6, 0, 33)
+    Divider.BackgroundColor3 = Color3.fromRGB(55, 55, 60)
+    Divider.BorderSizePixel  = 0
+    Divider.Parent           = Main
 
     -- Content frame (grid tombol mask)
     local Content = Instance.new("Frame")
     Content.Name             = "Content"
     Content.Size             = UDim2.new(1, -12, 0, 0)
-    Content.Position         = UDim2.new(0, 6, 0, 36)
+    Content.Position         = UDim2.new(0, 6, 0, 39)
     Content.BackgroundTransparency = 1
     Content.Parent           = Main
 
     local Grid = Instance.new("UIGridLayout")
-    Grid.CellSize            = UDim2.new(0, 84, 0, 26)
+    Grid.CellSize            = UDim2.new(0, 100, 0, 30)
     Grid.CellPadding         = UDim2.new(0, 6, 0, 6)
     Grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
     Grid.SortOrder           = Enum.SortOrder.LayoutOrder
     Grid.Parent              = Content
 
-    -- Tombol tiap mask
+    -- Tombol tiap mask — [Icon] Nama, persegi + UIStroke (tanpa UICorner)
     for i, mask in ipairs(MASK_DATA) do
         local btn = Instance.new("TextButton")
         btn.Name             = mask.arg
         btn.LayoutOrder      = i
         btn.BackgroundColor3 = Color3.fromRGB(38, 38, 58)
-        btn.Text             = mask.label
-        btn.TextColor3       = Color3.fromRGB(210, 210, 255)
-        btn.Font             = Enum.Font.GothamBold
-        btn.TextSize         = 10
+        btn.Text             = ""
         btn.BorderSizePixel  = 0
         btn.Parent           = Content
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
-        local s2 = Instance.new("UIStroke", btn)
-        s2.Color     = Color3.fromRGB(50, 50, 55)
-        s2.Thickness = 1
+
+        local btnStroke = Instance.new("UIStroke", btn)
+        btnStroke.Color     = Color3.fromRGB(70, 70, 100)
+        btnStroke.Thickness = 1.2
+
+        -- Icon karakter (kiri), diperjelas & tanpa tint tambahan
+        local Icon = Instance.new("ImageLabel")
+        Icon.Name                   = "Icon"
+        Icon.Image                  = mask.icon or ""
+        Icon.BackgroundTransparency = 1
+        Icon.AnchorPoint             = Vector2.new(0, 0.5)
+        Icon.Position                = UDim2.new(0, 6, 0.5, 0)
+        Icon.Size                    = UDim2.new(0, 22, 0, 22) -- diperbesar dari sebelumnya, murni tanpa ImageColor3
+        Icon.Parent                  = btn
+
+        -- Label nama (kanan icon)
+        local Label = Instance.new("TextLabel")
+        Label.Name                   = "Label"
+        Label.BackgroundTransparency = 1
+        Label.AnchorPoint             = Vector2.new(0, 0.5)
+        Label.Position                = UDim2.new(0, 34, 0.5, 0)
+        Label.Size                    = UDim2.new(1, -40, 1, 0)
+        Label.Text                    = mask.label
+        Label.TextColor3              = Color3.fromRGB(210, 210, 255)
+        Label.Font                    = Enum.Font.GothamBold
+        Label.TextSize                = 11
+        Label.TextXAlignment          = Enum.TextXAlignment.Left
+        Label.Parent                  = btn
 
         btn.MouseButton1Click:Connect(function()
             FireMask(mask.arg)
@@ -781,8 +814,8 @@ local function BuildMaskGui()
     end
 
     local rows      = math.ceil(#MASK_DATA / 2)
-    local contentH  = rows * 26 + (rows - 1) * 6 + 10
-    local OPEN_H    = 32 + contentH + 8
+    local contentH  = rows * 30 + (rows - 1) * 6 + 10
+    local OPEN_H    = 32 + 8 + contentH + 8
     local CLOSE_H   = 32
 
     MinBtn.MouseButton1Click:Connect(function()
@@ -791,7 +824,7 @@ local function BuildMaskGui()
         local targetH = isOpen and OPEN_H or CLOSE_H
         -- Tween ukuran frame
         local ts = game:GetService("TweenService")
-        ts:Create(Main, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 200, 0, targetH)}):Play()
+        ts:Create(Main, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 220, 0, targetH)}):Play()
     end)
 
     -- Draggable
