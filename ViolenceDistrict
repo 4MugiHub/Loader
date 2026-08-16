@@ -27,8 +27,8 @@ local PG          = LocalPlayer:WaitForChild("PlayerGui")
 ----------------------------------------------------------------
 local ICONS = {
     Main      = "rbxassetid://7733960981",
-    Survivors = "rbxassetid://6031068421",  -- icon: person/survivor
-    Killer    = "rbxassetid://6031225819",  -- icon: skull/killer
+    Survivors = "rbxassetid://6031068421",
+    Killer    = "rbxassetid://6031225819",
     ESP       = "rbxassetid://7733774602",
 }
 
@@ -190,67 +190,77 @@ end)
 -- == TAB: SURVIVORS ==
 ----------------------------------------------------------------
 
--- SkillCheck refs (async, tidak hang)
+-- ============================================================
+-- PERBAIKAN SKILL CHECK (AUTO GENERATORS) - INSTANT = SI KAT!
+-- ============================================================
+
 local Check, Line, Goal
 local SC_Mode      = "Instant"
 local SC_Enabled   = false
 local SC_VisConn   = nil
 local SC_HeartConn = nil
 
-local ActionPath = "Survivor-mob.Controls.action.check"
-local TouchID    = 8822
-
-local function GetActionTarget()
-    local cur = PG
-    for seg in string.gmatch(ActionPath, "[^%.]+") do
-        cur = cur and cur:FindFirstChild(seg)
+-- Cari tombol action "check" secara dinamis (caching)
+local ActionButton = nil
+local function FindActionButton()
+    if ActionButton and ActionButton.Parent then return ActionButton end
+    local function search(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            if child.Name == "check" or child.Name == "Check" then
+                return child
+            end
+            local found = search(child)
+            if found then return found end
+        end
+        return nil
     end
-    return cur
+    ActionButton = search(PG)
+    return ActionButton
 end
 
-local function TriggerMobileButton()
-    local b = GetActionTarget()
-    if b and b:IsA("GuiObject") then
-        local p, s, ins = b.AbsolutePosition, b.AbsoluteSize, GuiService:GetGuiInset()
-        local cx = p.X + s.X/2 + ins.X
-        local cy = p.Y + s.Y/2 + ins.Y
-        pcall(function()
-            VirtualInputManager:SendTouchEvent(TouchID, 0, cx, cy)
-            task.wait(0.01)
-            VirtualInputManager:SendTouchEvent(TouchID, 2, cx, cy)
+-- Fungsi SUPER CEPAT untuk menekan tombol action
+local function PressActionNow()
+    -- 1. Coba tekan tombol GUI (mobile) dengan hitung posisi absolute
+    local btn = FindActionButton()
+    if btn and btn:IsA("GuiButton") then
+        local success, err = pcall(function()
+            local p, s, ins = btn.AbsolutePosition, btn.AbsoluteSize, GuiService:GetGuiInset()
+            local cx = p.X + s.X/2 + ins.X
+            local cy = p.Y + s.Y/2 + ins.Y
+            VirtualInputManager:SendTouchEvent(8822, 0, cx, cy)
+            task.wait(0.005)
+            VirtualInputManager:SendTouchEvent(8822, 2, cx, cy)
         end)
+        if success then return true end
     end
+
+    -- 2. Coba tekan Space (keyboard) - instant
+    local success, err = pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+        task.wait(0.005)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+    end)
+    if success then return true end
+
+    -- 3. Coba tekan E (alternatif)
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(0.005)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+    end)
+    return true
 end
 
-local function PressSpace()
-    VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.Space, false, game)
-    task.wait(0.01)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-end
-
-local function IsSurvivor()
-    return LocalPlayer.Team ~= nil and
-        (LocalPlayer.Team.Name == "Survivors" or LocalPlayer.Team.Name == "Survivor")
-end
-
+-- Fungsi deteksi posisi Line terhadap Goal (untuk Legit)
 local function LineInGoal()
     if not Line or not Goal then return false end
     local lr = Line.Rotation % 360
     local gr = Goal.Rotation % 360
-    local ss = (gr + 101) % 360
-    local se = (gr + 115) % 360
-    return (ss > se and (lr >= ss or lr <= se)) or (lr >= ss and lr <= se)
+    local diff = (lr - gr + 180) % 360 - 180
+    return math.abs(diff) <= 8
 end
 
-local function StopSkillCheck()
-    if SC_HeartConn then SC_HeartConn:Disconnect(); SC_HeartConn = nil end
-end
-
-local function StopAll()
-    if SC_VisConn then SC_VisConn:Disconnect(); SC_VisConn = nil end
-    StopSkillCheck()
-end
-
+-- Setup referensi Check, Line, Goal
 local function SetupRefs()
     task.spawn(function()
         pcall(function()
@@ -267,23 +277,34 @@ end
 SetupRefs()
 LocalPlayer.CharacterAdded:Connect(function() task.wait(2); SetupRefs() end)
 
+-- Hentikan semua koneksi
+local function StopSkillCheck()
+    if SC_HeartConn then SC_HeartConn:Disconnect(); SC_HeartConn = nil end
+end
+
+local function StopAll()
+    if SC_VisConn then SC_VisConn:Disconnect(); SC_VisConn = nil end
+    StopSkillCheck()
+end
+
+-- Mode Instant: langsung press tanpa jeda, seketika saat Check.Visible = true
 local function StartInstant()
     if SC_VisConn then SC_VisConn:Disconnect() end
     SC_VisConn = Check:GetPropertyChangedSignal("Visible"):Connect(function()
         if not IsSurvivor() then StopSkillCheck(); return end
         if Check.Visible then
             StopSkillCheck()
-            SC_HeartConn = RunService.Heartbeat:Connect(function()
-                if not Check or not Check.Visible then StopSkillCheck(); return end
-                TriggerMobileButton()
-                PressSpace()
-            end)
+            PressActionNow()
+            task.wait(0.05)
+            PressActionNow()
+            StopSkillCheck()
         else
             StopSkillCheck()
         end
     end)
 end
 
+-- Mode Legit: tekan hanya saat Line berada di Goal
 local function StartLegit()
     if SC_VisConn then SC_VisConn:Disconnect() end
     SC_VisConn = Check:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -292,14 +313,14 @@ local function StartLegit()
         SC_HeartConn = RunService.Heartbeat:Connect(function()
             if not (Line and Goal) then return end
             if LineInGoal() then
-                TriggerMobileButton()
-                PressSpace()
+                PressActionNow()
                 StopSkillCheck()
             end
         end)
     end)
 end
 
+-- Mulai skill check sesuai mode
 local function StartSkillCheck()
     StopAll()
     task.spawn(function()
@@ -317,7 +338,18 @@ local SurvivorsTab = Window:CreateTab({"Survivors", ICONS.Survivors})
 ----------------------------------------------------------------
 local PredSection = SurvivorsTab:AddSection("Global Prediction", false)
 
--- IndicatorGui — container label prediksi (dibuat sekali, persistent)
+local function GetGameValue(player, key)
+    if not player then return nil end
+    local attr = player:GetAttribute(key)
+    if attr ~= nil then return attr end
+    local child = player:FindFirstChild(key)
+    if child then
+        local ok, val = pcall(function() return child.Value end)
+        if ok then return val end
+    end
+    return nil
+end
+
 local IndicatorGui = Instance.new("ScreenGui")
 IndicatorGui.Name           = "VD_IndicatorGui"
 IndicatorGui.ResetOnSpawn   = false
@@ -483,59 +515,7 @@ GenSection:AddToggle({
     end
 })
 
-GenSection:AddSeperator({"Instant Complete"})
-
-GenSection:AddButton({
-    Title   = "Complete All Generators",
-    Content = "Instantly complete all generators in the map",
-    Callback = function()
-        if not IsSurvivor() then
-            MugiHub:SetNotification({ Title="Auto Generators", Description="Survivors only", Delay=3 }); return
-        end
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        local genR    = remotes and remotes:FindFirstChild("Generator")
-        local repairE = genR and genR:FindFirstChild("RepairEvent")
-        local skillE  = genR and genR:FindFirstChild("SkillCheckResultEvent")
-        if not repairE or not skillE then
-            MugiHub:SetNotification({ Title="Auto Generators", Description="Game not ready yet", Delay=3 }); return
-        end
-        local map = Workspace:FindFirstChild("Map")
-        if not map then
-            MugiHub:SetNotification({ Title="Auto Generators", Description="Map not loaded yet", Delay=3 }); return
-        end
-        local searchIn = map:FindFirstChild("Gens") or map
-        local completed = 0
-        for _, obj in ipairs(searchIn:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name == "Generator" then
-                for _, point in ipairs(obj:GetChildren()) do
-                    if point.Name:find("GeneratorPoint") then
-                        completed = completed + 1
-                        task.spawn(function()
-                            -- Fire repairE bertahap agar server catat progress
-                            -- lalu akhiri dengan skillE success agar benar-benar complete
-                            for _ = 1, 15 do
-                                pcall(function() repairE:FireServer(point, false) end)
-                                task.wait(0.05)
-                            end
-                            -- Trigger skill check success di akhir agar goal tercapai
-                            pcall(function() skillE:FireServer("success", 1, obj, point) end)
-                            task.wait(0.1)
-                            pcall(function() repairE:FireServer(point, true) end)
-                        end)
-                    end
-                end
-            end
-        end
-        MugiHub:SetNotification({
-            Title="Auto Generators",
-            Description = completed > 0
-                and string.format("All generators done! (%d points)", completed)
-                or "No generator points found",
-            Delay=3
-        })
-    end
-})
-
+----------------------------------------------------------------
 local GateSection = SurvivorsTab:AddSection("Bypass Gate", false)
 
 GateSection:AddButton({
@@ -646,351 +626,300 @@ AutoAtkSection:AddSlider({
 })
 
 ----------------------------------------------------------------
--- Section: Killer Movement (Mask Selection)
+-- Section: Killer Movement (Mask Selection) - REPLACED WITH NEW GUI
 ----------------------------------------------------------------
 local MaskedSection = KillerTab:AddSection("Mask Selection", false)
 
--- Asset data — urut sesuai foto (tanpa Richard = default/deactivate)
-local MASK_DATA = {
-    { arg="Alex",    label="Alex",    image="rbxassetid://15946083863",    key=Enum.KeyCode.One   },
-    { arg="Brandon", label="Brandon", image="rbxassetid://111928367372122", key=Enum.KeyCode.Two   },
-    { arg="Cobra",   label="Cobra",   image="rbxassetid://15946288579",    key=Enum.KeyCode.Three },
-    { arg="Rabbit",  label="Rabbit",  image="rbxassetid://103750154338014", key=Enum.KeyCode.Four  },
-    { arg="Richter", label="Richter", image="rbxassetid://590245826",      key=Enum.KeyCode.Five  },
-    { arg="Tony",    label="Tony",    image="rbxassetid://96793004678696",  key=Enum.KeyCode.Six   },
-}
--- Richard = default [7]
-local MASK_DEFAULT_ARG = "Richard"
+-- Variabel untuk menyimpan GUI Mask Selection yang baru
+local MaskGui = nil
+local MaskGuiOpen = false
+local MaskKeyConn = nil
 
-local function FireMask(argName)
-    pcall(function()
-        ReplicatedStorage:WaitForChild("Remotes")
-            :WaitForChild("Killers")
-            :WaitForChild("Masked")
-            :WaitForChild("Activatepower")
-            :FireServer(argName)
-    end)
-end
-
-local function CheckIsMasked()
-    local skVal = LocalPlayer:GetAttribute("SelectedKiller")
-    if skVal == nil then
-        local sk = LocalPlayer:FindFirstChild("SelectedKiller")
-        if sk then skVal = sk.Value end
-    end
-    if skVal == nil then return false end
-    return tostring(skVal):lower():find("masked") ~= nil
-end
-
--- GUI Mask Selection
-local MaskGui        = nil
-local MaskCountdown  = nil  -- task handle
-local MaskTimeLeft   = 0
-local MaskTimerLabel = nil
-local MaskGuiOpen    = false
-local MaskKeyConn    = nil
-
-local COUNTDOWN_TIME = 68.7
-
-local function CancelCountdown()
-    if MaskCountdown then
-        task.cancel(MaskCountdown)
-        MaskCountdown = nil
-    end
-end
-
-local function StartCountdown(onDone)
-    CancelCountdown()
-    MaskTimeLeft = COUNTDOWN_TIME
-    MaskCountdown = task.spawn(function()
-        while MaskTimeLeft > 0 do
-            task.wait(0.1)
-            MaskTimeLeft = math.max(0, MaskTimeLeft - 0.1)
-        end
-        if onDone then onDone() end
-    end)
-end
-
-local MASK_COLORS = {
-    Main     = Color3.fromRGB(74, 74, 74),
-    Header   = Color3.fromRGB(65, 65, 65),
-    White    = Color3.fromRGB(255, 255, 255),
-    Black    = Color3.fromRGB(0, 0, 0),
-    Red      = Color3.fromRGB(255, 0, 0),
-    Green    = Color3.fromRGB(0, 200, 70),
-    Selected = Color3.fromRGB(0, 255, 80),
-    Hover    = Color3.fromRGB(180, 180, 180),
-}
-
+-- Fungsi untuk membuat GUI Mask Selection (dengan mekanik minimize dari kode lama)
 local function BuildMaskGui()
+    -- Hapus GUI lama jika ada
     if MaskGui and MaskGui.Parent then MaskGui:Destroy() end
 
-    local maskButtons  = {}
-    local selectedMask = nil
-    local minimized    = false
-    local normalSize   = UDim2.fromScale(0.385, 0.60)
-    local minimizedSize = UDim2.fromScale(0.385, 0.17)
+    -- ===== KODE GUI DARI PERTANYAAN (dimodifikasi dengan minimize) =====
+    local screenGui = Instance.new("ScreenGui", PG)
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Name = "MaskSelectionGUI"
 
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name           = "MugiMaskSelection"
-    ScreenGui.ResetOnSpawn   = false
-    ScreenGui.DisplayOrder   = 12
-    ScreenGui.IgnoreGuiInset = true
-    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    ScreenGui.Parent         = PG
+    local maskSelection = Instance.new("Frame", screenGui)
+    maskSelection.Name = "MaskSelection"
+    maskSelection.ZIndex = 5
+    maskSelection.BorderSizePixel = 0
+    maskSelection.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    maskSelection.Size = UDim2.new(0.25, 0, 0.1, 0)
+    maskSelection.Position = UDim2.new(0.375, 0, 0.12, 0)
 
-    local Main = Instance.new("Frame")
-    Main.Name             = "Main"
-    Main.AnchorPoint      = Vector2.new(0.5, 0.5)
-    Main.Position         = UDim2.fromScale(0.55, 0.45)
-    Main.Size             = normalSize
-    Main.BackgroundColor3 = MASK_COLORS.Main
-    Main.BorderSizePixel  = 0
-    Main.Parent           = ScreenGui
-    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 20)
-    local mainAspect = Instance.new("UIAspectRatioConstraint", Main)
-    mainAspect.AspectRatio = 0.94872
+    local cornerMask = Instance.new("UICorner", maskSelection)
+    cornerMask.CornerRadius = UDim.new(0, 5)
 
-    -- Header
-    local Header = Instance.new("Frame", Main)
-    Header.Name             = "Header"
-    Header.Size             = UDim2.fromScale(1, 0.17)
-    Header.Position         = UDim2.fromScale(0, 0)
-    Header.BackgroundColor3 = MASK_COLORS.Header
-    Header.BorderSizePixel  = 0
-    Header.ZIndex           = 10
-    Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 20)
+    local dragHandle = Instance.new("ImageButton", maskSelection)
+    dragHandle.Name = "DragHandle"
+    dragHandle.ZIndex = 6
+    dragHandle.BackgroundTransparency = 1
+    dragHandle.Size = UDim2.new(0.7, 0, 1, 0)
+    dragHandle.Position = UDim2.new(0, 0, 0, 0)
+    dragHandle.Image = "rbxasset://textures/ui/Button/ButtonHover.png"
+    dragHandle.ImageTransparency = 1
 
-    local HeaderBottom = Instance.new("Frame", Header)
-    HeaderBottom.Size             = UDim2.fromScale(1, 0.5)
-    HeaderBottom.Position         = UDim2.fromScale(0, 0.5)
-    HeaderBottom.BackgroundColor3 = MASK_COLORS.Header
-    HeaderBottom.BorderSizePixel  = 0
-    HeaderBottom.ZIndex           = 10
+    local titleLabel = Instance.new("TextLabel", maskSelection)
+    titleLabel.BorderSizePixel = 0
+    titleLabel.TextSize = 18
+    titleLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.FontFace = Font.new(
+        "rbxasset://fonts/families/SourceSansPro.json",
+        Enum.FontWeight.Bold,
+        Enum.FontStyle.Normal
+    )
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Size = UDim2.new(0.44144, 0, 0.72222, 0)
+    titleLabel.Text = "MASK SELECTION"
+    titleLabel.Position = UDim2.new(0.04505, 0, 0.16667, 0)
 
-    -- Title (juga sebagai drag handle)
-    local TitleLabel = Instance.new("TextLabel", Header)
-    TitleLabel.Name             = "Title"
-    TitleLabel.Size             = UDim2.fromScale(0.72, 0.8)
-    TitleLabel.Position         = UDim2.fromScale(0.045, 0.1)
-    TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text             = "MASK SELECTION"
-    TitleLabel.TextColor3       = MASK_COLORS.White
-    TitleLabel.TextSize         = 18
-    TitleLabel.Font             = Enum.Font.SourceSansBold
-    TitleLabel.TextXAlignment   = Enum.TextXAlignment.Left
-    TitleLabel.ZIndex           = 11
+    local toggleButton = Instance.new("TextButton", maskSelection)
+    toggleButton.BorderSizePixel = 0
+    toggleButton.TextSize = 32
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.ZIndex = 3
+    toggleButton.BackgroundTransparency = 1
+    toggleButton.Size = UDim2.new(0.17117, 0, 1, 0)
+    toggleButton.BorderColor3 = Color3.fromRGB(54, 54, 54)
+    toggleButton.Text = "-"
+    toggleButton.Position = UDim2.new(0.8018, 0, 0, 0)
 
-    local MinBtn = Instance.new("TextButton", Header)
-    MinBtn.Name                 = "Minimize"
-    MinBtn.Size                 = UDim2.fromScale(0.17, 1)
-    MinBtn.Position             = UDim2.fromScale(0.802, 0)
-    MinBtn.BackgroundTransparency = 1
-    MinBtn.BorderSizePixel      = 0
-    MinBtn.Text                 = "-"
-    MinBtn.TextColor3           = MASK_COLORS.White
-    MinBtn.TextSize             = 32
-    MinBtn.Font                 = Enum.Font.SourceSansBold
-    MinBtn.ZIndex               = 12
+    local strokeMask = Instance.new("UIStroke", maskSelection)
+    strokeMask.Thickness = 2
+    strokeMask.Color = Color3.fromRGB(255, 255, 255)
 
-    local SelectedLabel = Instance.new("TextLabel", Main)
-    SelectedLabel.Name              = "SelectedMask"
-    SelectedLabel.Size              = UDim2.fromScale(0.7, 0.098)
-    SelectedLabel.Position          = UDim2.fromScale(0.027, 0.049)
-    SelectedLabel.BackgroundTransparency = 1
-    SelectedLabel.Text              = "Mask Selected: N/A"
-    SelectedLabel.TextColor3        = MASK_COLORS.White
-    SelectedLabel.TextSize          = 18
-    SelectedLabel.Font              = Enum.Font.SourceSansBold
-    SelectedLabel.TextXAlignment    = Enum.TextXAlignment.Left
+    local maskMugi = Instance.new("Frame", maskSelection)
+    maskMugi.Name = "MaskMugi"
+    maskMugi.ZIndex = 2
+    maskMugi.BorderSizePixel = 0
+    maskMugi.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    maskMugi.Size = UDim2.new(1, 0, 6.5, 0)
+    maskMugi.Position = UDim2.new(0, 0, 1, 0)
+    maskMugi.BackgroundTransparency = 0.2
+    maskMugi.Visible = true
 
-    local MaskContainer = Instance.new("Frame", Main)
-    MaskContainer.Name              = "MaskContainer"
-    MaskContainer.Size              = UDim2.fromScale(0.95, 0.62)
-    MaskContainer.Position          = UDim2.fromScale(0.027, 0.16)
-    MaskContainer.BackgroundTransparency = 1
-    MaskContainer.BorderSizePixel   = 0
+    local cornerMugi = Instance.new("UICorner", maskMugi)
+    cornerMugi.CornerRadius = UDim.new(0, 5)
 
-    local Grid = Instance.new("UIGridLayout", MaskContainer)
-    Grid.CellSize               = UDim2.fromScale(0.297, 0.40)
-    Grid.CellPadding            = UDim2.fromScale(0.027, 0.04)
-    Grid.FillDirection          = Enum.FillDirection.Horizontal
-    Grid.FillDirectionMaxCells  = 3
-    Grid.HorizontalAlignment    = Enum.HorizontalAlignment.Center
-    Grid.VerticalAlignment      = Enum.VerticalAlignment.Center
-    Grid.SortOrder              = Enum.SortOrder.LayoutOrder
+    local strokeMugi = Instance.new("UIStroke", maskMugi)
+    strokeMugi.Thickness = 1.5
+    strokeMugi.Color = Color3.fromRGB(255, 255, 255)
 
-    local function resetStrokes()
-        for _, data in pairs(maskButtons) do
-            data.Stroke.Color     = MASK_COLORS.Black
-            data.Stroke.Thickness = 2
-        end
+    local selectedLabel = Instance.new("TextLabel", maskMugi)
+    selectedLabel.BorderSizePixel = 0
+    selectedLabel.TextSize = 18
+    selectedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    selectedLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    selectedLabel.FontFace = Font.new(
+        "rbxasset://fonts/families/SourceSansPro.json",
+        Enum.FontWeight.Bold,
+        Enum.FontStyle.Normal
+    )
+    selectedLabel.TextColor3 = Color3.fromRGB(75, 255, 53)
+    selectedLabel.BackgroundTransparency = 1
+    selectedLabel.Size = UDim2.new(0.51351, 0, 0.10256, 0)
+    selectedLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    selectedLabel.Text = "Mask Selected: N/A"
+    selectedLabel.Position = UDim2.new(0.02703, 0, 0.05128, 0)
+
+    local function createMaskButton(parent, name, imageId, number, posX, posY)
+        local btn = Instance.new("ImageButton", parent)
+        btn.Name = name
+        btn.BorderSizePixel = 0
+        btn.BackgroundTransparency = 0.9
+        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Image = imageId
+        btn.Size = UDim2.new(0.2973, 0, 0.28205, 0)
+        btn.Position = UDim2.new(posX, 0, posY, 0)
+
+        local corner = Instance.new("UICorner", btn)
+        local stroke = Instance.new("UIStroke", btn)
+        stroke.Thickness = 2
+
+        local numLabel = Instance.new("TextLabel", btn)
+        numLabel.Name = tostring(number)
+        numLabel.BorderSizePixel = 0
+        numLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        numLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        numLabel.BackgroundTransparency = 0.5
+        numLabel.Size = UDim2.new(0.24242, 0, 0.21212, 0)
+        numLabel.Text = tostring(number)
+        numLabel.Position = UDim2.new(0.0303, 0, 0.0303, 0)
+        local cornerNum = Instance.new("UICorner", numLabel)
+
+        local nameLabel = Instance.new("TextLabel", btn)
+        nameLabel.Name = "name"
+        nameLabel.BorderSizePixel = 0
+        nameLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameLabel.BackgroundTransparency = 0.5
+        nameLabel.Size = UDim2.new(1.06061, 0, 0.21212, 0)
+        nameLabel.Text = name
+        nameLabel.Position = UDim2.new(-0.0303, 0, 0.78788, 0)
+        local cornerName = Instance.new("UICorner", nameLabel)
+
+        return btn
     end
 
-    local function selectMaskVisual(maskData, stroke)
-        selectedMask          = maskData.arg
-        SelectedLabel.Text    = "Mask Selected: " .. maskData.label
-        resetStrokes()
-        stroke.Color     = MASK_COLORS.Selected
-        stroke.Thickness = 3
-    end
+    local swan = createMaskButton(maskMugi, "Swan", "https://www.roblox.com/asset-thumbnail/image?assetId=15946083863&width=420&height=420&format=png", 1, 0.02703, 0.18803)
+    local panther = createMaskButton(maskMugi, "Panther", "https://www.roblox.com/asset-thumbnail/image?assetId=111928367372122&width=420&height=420&format=png", 2, 0.35135, 0.18803)
+    local cobra = createMaskButton(maskMugi, "Cobra", "https://www.roblox.com/asset-thumbnail/image?assetId=15946288579&width=420&height=420&format=png", 3, 0.67568, 0.18803)
+    local tiger = createMaskButton(maskMugi, "Tiger", "https://www.roblox.com/asset-thumbnail/image?assetId=96793004678696&width=420&height=420&format=png", 4, 0.02703, 0.50427)
+    local rabbit = createMaskButton(maskMugi, "Rabbit", "https://www.roblox.com/asset-thumbnail/image?assetId=103750154338014&width=420&height=420&format=png", 5, 0.35135, 0.50427)
+    local rat = createMaskButton(maskMugi, "Rat", "https://www.roblox.com/asset-thumbnail/image?assetId=590245826&width=420&height=420&format=png", 6, 0.67568, 0.50427)
 
-    for i, mask in ipairs(MASK_DATA) do
-        local Card = Instance.new("ImageButton", MaskContainer)
-        Card.Name                   = mask.arg
-        Card.LayoutOrder            = i
-        Card.BackgroundColor3       = MASK_COLORS.White
-        Card.BackgroundTransparency = 0.9
-        Card.BorderSizePixel        = 0
-        Card.AutoButtonColor        = false
-        Card.Image                  = mask.image
-        Card.ScaleType              = Enum.ScaleType.Fit
-        Card.ClipsDescendants       = true
-        Instance.new("UICorner", Card).CornerRadius = UDim.new(0, 8)
+    local deactiveButton = Instance.new("TextButton", maskMugi)
+    deactiveButton.BorderSizePixel = 0
+    deactiveButton.TextSize = 12
+    deactiveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    deactiveButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    deactiveButton.BackgroundTransparency = 0.4
+    deactiveButton.Size = UDim2.new(0.94595, 0, 0.11111, 0)
+    deactiveButton.Text = "[7] Deactive"
+    deactiveButton.Position = UDim2.new(0.02703, 0, 0.83761, 0)
 
-        local Stroke = Instance.new("UIStroke", Card)
-        Stroke.Name            = "UIStroke"
-        Stroke.Color           = MASK_COLORS.Black
-        Stroke.Thickness       = 2
-        Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    local cornerDeactive = Instance.new("UICorner", deactiveButton)
+    cornerDeactive.CornerRadius = UDim.new(0, 3)
 
-        local NumLbl = Instance.new("TextLabel", Card)
-        NumLbl.Size                   = UDim2.fromScale(0.242, 0.212)
-        NumLbl.Position               = UDim2.fromScale(0.03, 0.03)
-        NumLbl.BackgroundColor3       = MASK_COLORS.Black
-        NumLbl.BackgroundTransparency = 0.5
-        NumLbl.BorderSizePixel        = 0
-        NumLbl.Text                   = tostring(i)
-        NumLbl.TextColor3             = MASK_COLORS.White
-        NumLbl.TextSize               = 14
-        NumLbl.Font                   = Enum.Font.SourceSans
-        Instance.new("UICorner", NumLbl).CornerRadius = UDim.new(0, 6)
+    local strokeDeactive = Instance.new("UIStroke", deactiveButton)
+    strokeDeactive.Thickness = 2
+    strokeDeactive.Color = Color3.fromRGB(97, 2, 2)
 
-        local NameLbl = Instance.new("TextLabel", Card)
-        NameLbl.Size                   = UDim2.fromScale(1.06, 0.212)
-        NameLbl.Position               = UDim2.fromScale(-0.03, 0.788)
-        NameLbl.BackgroundColor3       = MASK_COLORS.Black
-        NameLbl.BackgroundTransparency = 0.5
-        NameLbl.BorderSizePixel        = 0
-        NameLbl.Text                   = mask.label
-        NameLbl.TextColor3             = MASK_COLORS.White
-        NameLbl.TextSize               = 14
-        NameLbl.Font                   = Enum.Font.SourceSans
-        Instance.new("UICorner", NameLbl).CornerRadius = UDim.new(0, 6)
+    local maskMapping = {
+        Swan = "Alex",
+        Panther = "Brandon",
+        Cobra = "Cobra",
+        Tiger = "Tony",
+        Rabbit = "Rabbit",
+        Rat = "Richter",
+        Deactive = "Richard"
+    }
 
-        local function ActivateMask()
-            FireMask(mask.arg)
-            selectMaskVisual(mask, Stroke)
-            MugiHub:SetNotification({ Title="Mask Selection", Description="Switched to "..mask.label, Delay=3 })
-            StartCountdown(function()
-                FireMask(MASK_DEFAULT_ARG)
-                if SelectedLabel and SelectedLabel.Parent then
-                    SelectedLabel.Text = "Mask Selected: N/A"
-                end
-                resetStrokes()
-            end)
-        end
+    local remoteEvent = replicatedStorage:WaitForChild("Remotes"):WaitForChild("Killers"):WaitForChild("Masked"):WaitForChild("Activatepower")
 
-        Card.MouseButton1Click:Connect(ActivateMask)
-        Card.MouseEnter:Connect(function()
-            if selectedMask ~= mask.arg then Stroke.Color = MASK_COLORS.Hover end
+    local function sendMask(charName)
+        if not charName then return end
+        local args = { charName }
+        pcall(function()
+            remoteEvent:FireServer(unpack(args))
         end)
-        Card.MouseLeave:Connect(function()
-            if selectedMask ~= mask.arg then Stroke.Color = MASK_COLORS.Black end
-        end)
-
-        maskButtons[mask.arg] = { Card=Card, Stroke=Stroke, Data=mask }
-        mask._activate = ActivateMask
     end
 
-    -- Deactivate button
-    local DeactBtn = Instance.new("TextButton", Main)
-    DeactBtn.Name             = "Deactivate"
-    DeactBtn.Size             = UDim2.fromScale(0.595, 0.111)
-    DeactBtn.Position         = UDim2.fromScale(0.207, 0.838)
-    DeactBtn.BackgroundColor3 = MASK_COLORS.Red
-    DeactBtn.BackgroundTransparency = 0.3
-    DeactBtn.BorderSizePixel  = 0
-    DeactBtn.Text             = "[7] Deactivate"
-    DeactBtn.TextColor3       = MASK_COLORS.White
-    DeactBtn.TextSize         = 12
-    DeactBtn.Font             = Enum.Font.SourceSans
-    Instance.new("UICorner", DeactBtn).CornerRadius = UDim.new(0, 90)
-
-    local function DeactivateMask()
-        CancelCountdown()
-        FireMask(MASK_DEFAULT_ARG)
-        selectedMask          = nil
-        SelectedLabel.Text    = "Mask Selected: N/A"
-        resetStrokes()
-        MugiHub:SetNotification({ Title="Mask Selection", Description="Mask deactivated", Delay=3 })
-    end
-    DeactBtn.MouseButton1Click:Connect(DeactivateMask)
-
-    -- Minimize
-    local function setMinimized(state)
-        minimized = state
-        MaskContainer.Visible = not minimized
-        SelectedLabel.Visible = not minimized
-        DeactBtn.Visible      = not minimized
-        Main.Size             = minimized and minimizedSize or normalSize
-        MinBtn.Text           = minimized and "+" or "-"
-    end
-    MinBtn.MouseButton1Click:Connect(function() setMinimized(not minimized) end)
-
-    -- Draggable PC + Mobile (drag dari Header)
-    local dragging, dragStart, startPos = false, nil, nil
-    local function onDragBegan(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging  = true
-            dragStart = input.Position
-            startPos  = Main.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
+    local function activateMask(buttonName)
+        local charName = maskMapping[buttonName]
+        if charName then
+            sendMask(charName)
+            selectedLabel.Text = "Mask Selected: " .. buttonName
         end
     end
-    Header.InputBegan:Connect(onDragBegan)
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-            local d = input.Position - dragStart
-            Main.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y
-            )
+
+    local function deactiveMask()
+        sendMask("Richard")
+        selectedLabel.Text = "Mask Selected: N/A"
+    end
+
+    -- ===== MEKANIK MINIMIZE (DARI KODE LAMA) =====
+    local minimized = false
+    local normalSize = UDim2.new(0.25, 0, 0.1, 0)
+    local minimizedSize = UDim2.new(0.25, 0, 0.05, 0) -- sesuaikan tinggi saat minimize
+
+    local function toggleMinimize()
+        minimized = not minimized
+        maskMugi.Visible = not minimized
+        maskSelection.Size = minimized and minimizedSize or normalSize
+        toggleButton.Text = minimized and "+" or "-"
+    end
+
+    -- Pasang event untuk tombol toggle
+    toggleButton.MouseButton1Click:Connect(toggleMinimize)
+
+    -- Pasang event untuk tombol mask
+    local maskButtons = {swan, panther, cobra, tiger, rabbit, rat}
+    for _, btn in ipairs(maskButtons) do
+        btn.MouseButton1Click:Connect(function()
+            activateMask(btn.Name)
+        end)
+    end
+
+    deactiveButton.MouseButton1Click:Connect(deactiveMask)
+
+    -- ===== DRAGGABLE (dari kode yang diberikan) =====
+    local dragging = false
+    local dragStartPos = Vector2.new()
+    local dragStartUDim2 = UDim2.new()
+
+    local function onDragStart(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStartPos = input.Position
+            dragStartUDim2 = maskSelection.Position
+        end
+    end
+
+    local function onDragMove(input)
+        if dragging then
+            local delta = input.Position - dragStartPos
+            local parentSize = screenGui.AbsoluteSize
+            local newScaleX = dragStartUDim2.X.Scale + (delta.X / parentSize.X)
+            local newScaleY = dragStartUDim2.Y.Scale + (delta.Y / parentSize.Y)
+            maskSelection.Position = UDim2.new(newScaleX, 0, newScaleY, 0)
+        end
+    end
+
+    local function onDragEnd(input)
+        if dragging then
+            dragging = false
+        end
+    end
+
+    dragHandle.InputBegan:Connect(onDragStart)
+    UserInputService.InputChanged:Connect(onDragMove)
+    UserInputService.InputEnded:Connect(onDragEnd)
+
+    -- ===== KEYBIND M untuk minimize (mirip kode lama) =====
+    local keyConn
+    keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed or not screenGui.Parent then
+            if keyConn then keyConn:Disconnect() end
+            return
+        end
+        if input.KeyCode == Enum.KeyCode.M then
+            toggleMinimize()
         end
     end)
 
-    MaskGui     = ScreenGui
+    -- Simpan GUI untuk dibersihkan nanti
+    MaskGui = screenGui
     MaskGuiOpen = true
-
+    -- Simpan key connection untuk di-disconnect saat toggle dimatikan
     if MaskKeyConn then MaskKeyConn:Disconnect() end
-    MaskKeyConn = UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not MaskGuiOpen then return end
-        if input.KeyCode == Enum.KeyCode.Seven then DeactivateMask(); return end
-        if input.KeyCode == Enum.KeyCode.Minus then setMinimized(true); return end
-        if input.KeyCode == Enum.KeyCode.Equals and input:IsModifierKeyDown(Enum.ModifierKey.Shift) then
-            setMinimized(false); return
-        end
-        for _, mask in ipairs(MASK_DATA) do
-            if input.KeyCode == mask.key then mask._activate(); break end
-        end
-    end)
+    MaskKeyConn = keyConn
 end
 
-
+-- Toggle untuk menampilkan/menyembunyikan GUI Mask Selection
 MaskedSection:AddToggle({
     Title   = "Mask Selection",
     Content = "Show / hide mask selection GUI",
     Default = false,
     Callback = function(state)
         if state then
-            if not CheckIsMasked() then
+            -- Cek apakah player adalah masked killer
+            local skVal = LocalPlayer:GetAttribute("SelectedKiller")
+            if skVal == nil then
+                local sk = LocalPlayer:FindFirstChild("SelectedKiller")
+                if sk then skVal = sk.Value end
+            end
+            local isMasked = skVal and tostring(skVal):lower():find("masked") ~= nil
+            if not isMasked then
                 MugiHub:SetNotification({
                     Title="Killer Movement", Description="You're not using The Masked", Delay=4
                 })
@@ -998,7 +927,7 @@ MaskedSection:AddToggle({
             end
             BuildMaskGui()
         else
-            CancelCountdown()
+            -- Matikan GUI
             MaskGuiOpen = false
             if MaskKeyConn then MaskKeyConn:Disconnect(); MaskKeyConn = nil end
             if MaskGui and MaskGui.Parent then MaskGui:Destroy(); MaskGui = nil end
@@ -1136,7 +1065,9 @@ local function ESP_UpdateGenBar(gen)
     return false
 end
 
+-- Refresh objects hanya jika ESP_Enabled true
 local function ESP_RefreshObjects()
+    if not ESP_Enabled then return end
     ESP_ActiveGens = {}
     local map = Workspace:FindFirstChild("Map")
     if not map then return end
@@ -1176,7 +1107,6 @@ end
 
 local function ESP_StartLoop()
     if ESP_ConnLoop then return end
-    -- RefreshObjects hanya dipanggil setelah ESP_Enabled = true
     ESP_ConnLoop = RunService.Heartbeat:Connect(function()
         if not ESP_Enabled then return end
         for _, p in ipairs(Players:GetPlayers()) do
@@ -1207,7 +1137,9 @@ local function ESP_StartLoop()
         end
     end)
     Workspace.ChildAdded:Connect(function(c)
-        if c.Name=="Map" then task.wait(1); ESP_RefreshObjects() end
+        if c.Name=="Map" and ESP_Enabled then
+            task.wait(1); ESP_RefreshObjects()
+        end
     end)
 end
 
