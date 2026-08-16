@@ -27,8 +27,8 @@ local PG          = LocalPlayer:WaitForChild("PlayerGui")
 ----------------------------------------------------------------
 local ICONS = {
     Main      = "rbxassetid://7733960981",
-    Survivors = "",
-    Killer    = "",
+    Survivors = "rbxassetid://6031068421",  -- icon: person/survivor
+    Killer    = "rbxassetid://6031225819",  -- icon: skull/killer
     ESP       = "rbxassetid://7733774602",
 }
 
@@ -42,7 +42,7 @@ local _executorName = (identifyexecutor and identifyexecutor()) or
 local Window = MugiHub:CreateWindow({
     Title       = "Mugi Hub",
     Description = "Peaceful Games",
-    Tags        = {"v1.0", "VD | Freemium", "Executor: " .. _executorName}
+    Tags        = {"VD | v1.0b", "Executor: " .. _executorName}
 })
 
 ----------------------------------------------------------------
@@ -349,8 +349,8 @@ local function updateNextKillerDisplay()
         label.Size         = UDim2.new(0, 260, 0, 75)
         label.Position     = UDim2.new(0.5, 0, 0, 45)
         label.AnchorPoint  = Vector2.new(0.5, 0)
-        label.BackgroundTransparency = 0.35
-        label.BackgroundColor3       = Color3.fromRGB(15, 15, 15)
+        label.BackgroundTransparency = 0.15
+        label.BackgroundColor3       = Color3.fromRGB(18, 18, 24)
         label.BorderSizePixel        = 0
         label.TextColor3  = Color3.fromRGB(255, 255, 255)
         label.Font        = Enum.Font.GothamBold
@@ -361,12 +361,13 @@ local function updateNextKillerDisplay()
         label.RichText    = true
 
         local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
+        corner.CornerRadius = UDim.new(0, 10)
         corner.Parent = label
 
         local stroke = Instance.new("UIStroke")
-        stroke.Color     = Color3.fromRGB(255, 153, 204)
-        stroke.Thickness = 1.5
+        stroke.Color     = Color3.fromRGB(255, 255, 255)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.6
         stroke.Parent    = label
 
         label.Parent = IndicatorGui
@@ -508,13 +509,19 @@ GenSection:AddButton({
             if obj:IsA("Model") and obj.Name == "Generator" then
                 for _, point in ipairs(obj:GetChildren()) do
                     if point.Name:find("GeneratorPoint") then
-                        pcall(function()
-                            for _ = 1, 20 do
-                                repairE:FireServer(point, true)
-                                skillE:FireServer("success", 1, obj, point)
-                            end
-                        end)
                         completed = completed + 1
+                        task.spawn(function()
+                            -- Fire repairE bertahap agar server catat progress
+                            -- lalu akhiri dengan skillE success agar benar-benar complete
+                            for _ = 1, 15 do
+                                pcall(function() repairE:FireServer(point, false) end)
+                                task.wait(0.05)
+                            end
+                            -- Trigger skill check success di akhir agar goal tercapai
+                            pcall(function() skillE:FireServer("success", 1, obj, point) end)
+                            task.wait(0.1)
+                            pcall(function() repairE:FireServer(point, true) end)
+                        end)
                     end
                 end
             end
@@ -704,199 +711,258 @@ local function StartCountdown(onDone)
     end)
 end
 
+local MASK_COLORS = {
+    Main     = Color3.fromRGB(74, 74, 74),
+    Header   = Color3.fromRGB(65, 65, 65),
+    White    = Color3.fromRGB(255, 255, 255),
+    Black    = Color3.fromRGB(0, 0, 0),
+    Red      = Color3.fromRGB(255, 0, 0),
+    Green    = Color3.fromRGB(0, 200, 70),
+    Selected = Color3.fromRGB(0, 255, 80),
+    Hover    = Color3.fromRGB(180, 180, 180),
+}
+
 local function BuildMaskGui()
     if MaskGui and MaskGui.Parent then MaskGui:Destroy() end
 
-    local CELL = 82
-    local GAP  = 6
-    local PAD  = 10
-    local COLS = 3
-    local ROWS = 2
-    local W = PAD*2 + COLS*CELL + (COLS-1)*GAP
-    local H_HEADER = 52
-    local H_GRID   = ROWS*CELL + (ROWS-1)*GAP
-    local H_DEACT  = 34
-    local H_TOTAL  = H_HEADER + 8 + H_GRID + 8 + H_DEACT + PAD
+    local maskButtons  = {}
+    local selectedMask = nil
+    local minimized    = false
+    local normalSize   = UDim2.fromScale(0.385, 0.60)
+    local minimizedSize = UDim2.fromScale(0.385, 0.17)
 
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name           = "MugiMaskSelection"
     ScreenGui.ResetOnSpawn   = false
     ScreenGui.DisplayOrder   = 12
+    ScreenGui.IgnoreGuiInset = true
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.Parent         = PG
 
     local Main = Instance.new("Frame")
     Main.Name             = "Main"
-    Main.Size             = UDim2.new(0, W, 0, H_TOTAL)
-    Main.Position         = UDim2.new(0.5, -W/2, 0.25, 0)
-    Main.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+    Main.AnchorPoint      = Vector2.new(0.5, 0.5)
+    Main.Position         = UDim2.fromScale(0.55, 0.45)
+    Main.Size             = normalSize
+    Main.BackgroundColor3 = MASK_COLORS.Main
     Main.BorderSizePixel  = 0
     Main.Parent           = ScreenGui
-    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 8)
-    local mainStroke = Instance.new("UIStroke", Main)
-    mainStroke.Color = Color3.fromRGB(60, 60, 70); mainStroke.Thickness = 1.5
+    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 20)
+    local mainAspect = Instance.new("UIAspectRatioConstraint", Main)
+    mainAspect.AspectRatio = 0.94872
 
-    -- Title
-    local TitleLabel = Instance.new("TextLabel", Main)
-    TitleLabel.Size                   = UDim2.new(1, -PAD*2, 0, 22)
-    TitleLabel.Position               = UDim2.new(0, PAD, 0, 8)
+    -- Header
+    local Header = Instance.new("Frame", Main)
+    Header.Name             = "Header"
+    Header.Size             = UDim2.fromScale(1, 0.17)
+    Header.Position         = UDim2.fromScale(0, 0)
+    Header.BackgroundColor3 = MASK_COLORS.Header
+    Header.BorderSizePixel  = 0
+    Header.ZIndex           = 10
+    Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 20)
+
+    local HeaderBottom = Instance.new("Frame", Header)
+    HeaderBottom.Size             = UDim2.fromScale(1, 0.5)
+    HeaderBottom.Position         = UDim2.fromScale(0, 0.5)
+    HeaderBottom.BackgroundColor3 = MASK_COLORS.Header
+    HeaderBottom.BorderSizePixel  = 0
+    HeaderBottom.ZIndex           = 10
+
+    -- Title (juga sebagai drag handle)
+    local TitleLabel = Instance.new("TextLabel", Header)
+    TitleLabel.Name             = "Title"
+    TitleLabel.Size             = UDim2.fromScale(0.72, 0.8)
+    TitleLabel.Position         = UDim2.fromScale(0.045, 0.1)
     TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text                   = "MASK SELECTION"
-    TitleLabel.TextColor3             = Color3.fromRGB(255, 255, 255)
-    TitleLabel.Font                   = Enum.Font.GothamBold
-    TitleLabel.TextSize               = 13
-    TitleLabel.TextXAlignment         = Enum.TextXAlignment.Left
+    TitleLabel.Text             = "MASK SELECTION"
+    TitleLabel.TextColor3       = MASK_COLORS.White
+    TitleLabel.TextSize         = 18
+    TitleLabel.Font             = Enum.Font.SourceSansBold
+    TitleLabel.TextXAlignment   = Enum.TextXAlignment.Left
+    TitleLabel.ZIndex           = 11
 
-    -- Active Mask label
-    local ActiveLabel = Instance.new("TextLabel", Main)
-    ActiveLabel.Name                   = "ActiveLabel"
-    ActiveLabel.Size                   = UDim2.new(1, -PAD*2, 0, 16)
-    ActiveLabel.Position               = UDim2.new(0, PAD, 0, 32)
-    ActiveLabel.BackgroundTransparency = 1
-    ActiveLabel.Text                   = "Active Mask: None"
-    ActiveLabel.TextColor3             = Color3.fromRGB(80, 255, 120)
-    ActiveLabel.Font                   = Enum.Font.GothamBold
-    ActiveLabel.TextSize               = 10
-    ActiveLabel.TextXAlignment         = Enum.TextXAlignment.Left
+    local MinBtn = Instance.new("TextButton", Header)
+    MinBtn.Name                 = "Minimize"
+    MinBtn.Size                 = UDim2.fromScale(0.17, 1)
+    MinBtn.Position             = UDim2.fromScale(0.802, 0)
+    MinBtn.BackgroundTransparency = 1
+    MinBtn.BorderSizePixel      = 0
+    MinBtn.Text                 = "-"
+    MinBtn.TextColor3           = MASK_COLORS.White
+    MinBtn.TextSize             = 32
+    MinBtn.Font                 = Enum.Font.SourceSansBold
+    MinBtn.ZIndex               = 12
 
-    -- Grid frame 3x2
-    local GridFrame = Instance.new("Frame", Main)
-    GridFrame.Size                   = UDim2.new(0, COLS*CELL+(COLS-1)*GAP, 0, H_GRID)
-    GridFrame.Position               = UDim2.new(0, PAD, 0, H_HEADER+8)
-    GridFrame.BackgroundTransparency = 1
+    local SelectedLabel = Instance.new("TextLabel", Main)
+    SelectedLabel.Name              = "SelectedMask"
+    SelectedLabel.Size              = UDim2.fromScale(0.7, 0.098)
+    SelectedLabel.Position          = UDim2.fromScale(0.027, 0.049)
+    SelectedLabel.BackgroundTransparency = 1
+    SelectedLabel.Text              = "Mask Selected: N/A"
+    SelectedLabel.TextColor3        = MASK_COLORS.White
+    SelectedLabel.TextSize          = 18
+    SelectedLabel.Font              = Enum.Font.SourceSansBold
+    SelectedLabel.TextXAlignment    = Enum.TextXAlignment.Left
 
-    local Grid = Instance.new("UIGridLayout", GridFrame)
-    Grid.CellSize            = UDim2.new(0, CELL, 0, CELL)
-    Grid.CellPadding         = UDim2.new(0, GAP, 0, GAP)
-    Grid.HorizontalAlignment = Enum.HorizontalAlignment.Left
-    Grid.SortOrder           = Enum.SortOrder.LayoutOrder
+    local MaskContainer = Instance.new("Frame", Main)
+    MaskContainer.Name              = "MaskContainer"
+    MaskContainer.Size              = UDim2.fromScale(0.95, 0.62)
+    MaskContainer.Position          = UDim2.fromScale(0.027, 0.16)
+    MaskContainer.BackgroundTransparency = 1
+    MaskContainer.BorderSizePixel   = 0
+
+    local Grid = Instance.new("UIGridLayout", MaskContainer)
+    Grid.CellSize               = UDim2.fromScale(0.297, 0.40)
+    Grid.CellPadding            = UDim2.fromScale(0.027, 0.04)
+    Grid.FillDirection          = Enum.FillDirection.Horizontal
+    Grid.FillDirectionMaxCells  = 3
+    Grid.HorizontalAlignment    = Enum.HorizontalAlignment.Center
+    Grid.VerticalAlignment      = Enum.VerticalAlignment.Center
+    Grid.SortOrder              = Enum.SortOrder.LayoutOrder
+
+    local function resetStrokes()
+        for _, data in pairs(maskButtons) do
+            data.Stroke.Color     = MASK_COLORS.Black
+            data.Stroke.Thickness = 2
+        end
+    end
+
+    local function selectMaskVisual(maskData, stroke)
+        selectedMask          = maskData.arg
+        SelectedLabel.Text    = "Mask Selected: " .. maskData.label
+        resetStrokes()
+        stroke.Color     = MASK_COLORS.Selected
+        stroke.Thickness = 3
+    end
 
     for i, mask in ipairs(MASK_DATA) do
-        local btn = Instance.new("TextButton", GridFrame)
-        btn.Name             = mask.arg
-        btn.LayoutOrder      = i
-        btn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
-        btn.Text             = ""
-        btn.BorderSizePixel  = 0
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-        local btnStroke = Instance.new("UIStroke", btn)
-        btnStroke.Color = Color3.fromRGB(60, 60, 80); btnStroke.Thickness = 1
+        local Card = Instance.new("ImageButton", MaskContainer)
+        Card.Name                   = mask.arg
+        Card.LayoutOrder            = i
+        Card.BackgroundColor3       = MASK_COLORS.White
+        Card.BackgroundTransparency = 0.9
+        Card.BorderSizePixel        = 0
+        Card.AutoButtonColor        = false
+        Card.Image                  = mask.image
+        Card.ScaleType              = Enum.ScaleType.Fit
+        Card.ClipsDescendants       = true
+        Instance.new("UICorner", Card).CornerRadius = UDim.new(0, 8)
 
-        -- Nomor pojok kiri atas
-        local NumLbl = Instance.new("TextLabel", btn)
-        NumLbl.Size                   = UDim2.new(0, 16, 0, 16)
-        NumLbl.Position               = UDim2.new(0, 3, 0, 2)
-        NumLbl.BackgroundTransparency = 1
+        local Stroke = Instance.new("UIStroke", Card)
+        Stroke.Name            = "UIStroke"
+        Stroke.Color           = MASK_COLORS.Black
+        Stroke.Thickness       = 2
+        Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+        local NumLbl = Instance.new("TextLabel", Card)
+        NumLbl.Size                   = UDim2.fromScale(0.242, 0.212)
+        NumLbl.Position               = UDim2.fromScale(0.03, 0.03)
+        NumLbl.BackgroundColor3       = MASK_COLORS.Black
+        NumLbl.BackgroundTransparency = 0.5
+        NumLbl.BorderSizePixel        = 0
         NumLbl.Text                   = tostring(i)
-        NumLbl.TextColor3             = Color3.fromRGB(210, 210, 230)
-        NumLbl.Font                   = Enum.Font.GothamBold
-        NumLbl.TextSize               = 9
-        NumLbl.ZIndex                 = 6
+        NumLbl.TextColor3             = MASK_COLORS.White
+        NumLbl.TextSize               = 14
+        NumLbl.Font                   = Enum.Font.SourceSans
+        Instance.new("UICorner", NumLbl).CornerRadius = UDim.new(0, 6)
 
-        -- Gambar
-        local Img = Instance.new("ImageLabel", btn)
-        Img.Image                  = mask.image
-        Img.BackgroundTransparency = 1
-        Img.AnchorPoint            = Vector2.new(0.5, 0)
-        Img.Position               = UDim2.new(0.5, 0, 0, 2)
-        Img.Size                   = UDim2.new(0, CELL-6, 0, CELL-18)
-        Img.ScaleType              = Enum.ScaleType.Fit
-        Img.ZIndex                 = 5
-
-        -- Nama bawah
-        local NameLbl = Instance.new("TextLabel", btn)
-        NameLbl.Size                   = UDim2.new(1, 0, 0, 14)
-        NameLbl.Position               = UDim2.new(0, 0, 1, -14)
-        NameLbl.BackgroundTransparency = 1
+        local NameLbl = Instance.new("TextLabel", Card)
+        NameLbl.Size                   = UDim2.fromScale(1.06, 0.212)
+        NameLbl.Position               = UDim2.fromScale(-0.03, 0.788)
+        NameLbl.BackgroundColor3       = MASK_COLORS.Black
+        NameLbl.BackgroundTransparency = 0.5
+        NameLbl.BorderSizePixel        = 0
         NameLbl.Text                   = mask.label
-        NameLbl.TextColor3             = Color3.fromRGB(230, 230, 255)
-        NameLbl.Font                   = Enum.Font.GothamBold
-        NameLbl.TextSize               = 9
-        NameLbl.TextXAlignment         = Enum.TextXAlignment.Center
-        NameLbl.ZIndex                 = 6
+        NameLbl.TextColor3             = MASK_COLORS.White
+        NameLbl.TextSize               = 14
+        NameLbl.Font                   = Enum.Font.SourceSans
+        Instance.new("UICorner", NameLbl).CornerRadius = UDim.new(0, 6)
 
         local function ActivateMask()
             FireMask(mask.arg)
-            for _, b in ipairs(GridFrame:GetChildren()) do
-                if b:IsA("TextButton") then
-                    b.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
-                    local s = b:FindFirstChildOfClass("UIStroke")
-                    if s then s.Color = Color3.fromRGB(60, 60, 80) end
-                end
-            end
-            btn.BackgroundColor3 = Color3.fromRGB(60, 45, 10)
-            btnStroke.Color      = Color3.fromRGB(220, 170, 30)
-            ActiveLabel.Text     = "Active Mask: " .. mask.label
-            MugiHub:SetNotification({
-                Title="Killer Movement", Description="Switched to "..mask.label, Delay=3
-            })
+            selectMaskVisual(mask, Stroke)
+            MugiHub:SetNotification({ Title="Mask Selection", Description="Switched to "..mask.label, Delay=3 })
             StartCountdown(function()
                 FireMask(MASK_DEFAULT_ARG)
-                if ActiveLabel and ActiveLabel.Parent then
-                    ActiveLabel.Text = "Active Mask: None"
+                if SelectedLabel and SelectedLabel.Parent then
+                    SelectedLabel.Text = "Mask Selected: N/A"
                 end
-                for _, b in ipairs(GridFrame:GetChildren()) do
-                    if b:IsA("TextButton") then
-                        b.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
-                        local s = b:FindFirstChildOfClass("UIStroke")
-                        if s then s.Color = Color3.fromRGB(60, 60, 80) end
-                    end
-                end
+                resetStrokes()
             end)
         end
 
-        btn.MouseButton1Click:Connect(ActivateMask)
+        Card.MouseButton1Click:Connect(ActivateMask)
+        Card.MouseEnter:Connect(function()
+            if selectedMask ~= mask.arg then Stroke.Color = MASK_COLORS.Hover end
+        end)
+        Card.MouseLeave:Connect(function()
+            if selectedMask ~= mask.arg then Stroke.Color = MASK_COLORS.Black end
+        end)
+
+        maskButtons[mask.arg] = { Card=Card, Stroke=Stroke, Data=mask }
         mask._activate = ActivateMask
     end
 
-    -- [7] Deactivate
-    local DeactY = H_HEADER + 8 + H_GRID + 8
+    -- Deactivate button
     local DeactBtn = Instance.new("TextButton", Main)
-    DeactBtn.Size             = UDim2.new(0, W-PAD*2, 0, H_DEACT)
-    DeactBtn.Position         = UDim2.new(0, PAD, 0, DeactY)
-    DeactBtn.BackgroundColor3 = Color3.fromRGB(90, 15, 15)
-    DeactBtn.Text             = "[7] Deactivate"
-    DeactBtn.TextColor3       = Color3.fromRGB(255, 180, 180)
-    DeactBtn.Font             = Enum.Font.GothamBold
-    DeactBtn.TextSize         = 12
+    DeactBtn.Name             = "Deactivate"
+    DeactBtn.Size             = UDim2.fromScale(0.595, 0.111)
+    DeactBtn.Position         = UDim2.fromScale(0.207, 0.838)
+    DeactBtn.BackgroundColor3 = MASK_COLORS.Red
+    DeactBtn.BackgroundTransparency = 0.3
     DeactBtn.BorderSizePixel  = 0
-    Instance.new("UICorner", DeactBtn).CornerRadius = UDim.new(0, 6)
-    local deactStroke = Instance.new("UIStroke", DeactBtn)
-    deactStroke.Color = Color3.fromRGB(150, 30, 30); deactStroke.Thickness = 1.2
+    DeactBtn.Text             = "[7] Deactivate"
+    DeactBtn.TextColor3       = MASK_COLORS.White
+    DeactBtn.TextSize         = 12
+    DeactBtn.Font             = Enum.Font.SourceSans
+    Instance.new("UICorner", DeactBtn).CornerRadius = UDim.new(0, 90)
 
     local function DeactivateMask()
         CancelCountdown()
         FireMask(MASK_DEFAULT_ARG)
-        ActiveLabel.Text = "Active Mask: None"
-        for _, b in ipairs(GridFrame:GetChildren()) do
-            if b:IsA("TextButton") then
-                b.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
-                local s = b:FindFirstChildOfClass("UIStroke")
-                if s then s.Color = Color3.fromRGB(60, 60, 80) end
-            end
-        end
-        MugiHub:SetNotification({ Title="Killer Movement", Description="Mask deactivated", Delay=3 })
+        selectedMask          = nil
+        SelectedLabel.Text    = "Mask Selected: N/A"
+        resetStrokes()
+        MugiHub:SetNotification({ Title="Mask Selection", Description="Mask deactivated", Delay=3 })
     end
     DeactBtn.MouseButton1Click:Connect(DeactivateMask)
 
-    -- Draggable dari TitleLabel
+    -- Minimize
+    local function setMinimized(state)
+        minimized = state
+        MaskContainer.Visible = not minimized
+        SelectedLabel.Visible = not minimized
+        DeactBtn.Visible      = not minimized
+        Main.Size             = minimized and minimizedSize or normalSize
+        MinBtn.Text           = minimized and "+" or "-"
+    end
+    MinBtn.MouseButton1Click:Connect(function() setMinimized(not minimized) end)
+
+    -- Draggable PC + Mobile (drag dari Header)
     local dragging, dragStart, startPos = false, nil, nil
-    TitleLabel.InputBegan:Connect(function(input)
+    local function onDragBegan(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-            dragging=true; dragStart=input.Position; startPos=Main.Position
+            dragging  = true
+            dragStart = input.Position
+            startPos  = Main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
         end
-    end)
-    TitleLabel.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then dragging=false end
-    end)
+    end
+    Header.InputBegan:Connect(onDragBegan)
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch) then
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
             local d = input.Position - dragStart
-            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X,
-                                       startPos.Y.Scale, startPos.Y.Offset+d.Y)
+            Main.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
         end
     end)
 
@@ -907,6 +973,10 @@ local function BuildMaskGui()
     MaskKeyConn = UserInputService.InputBegan:Connect(function(input, gp)
         if gp or not MaskGuiOpen then return end
         if input.KeyCode == Enum.KeyCode.Seven then DeactivateMask(); return end
+        if input.KeyCode == Enum.KeyCode.Minus then setMinimized(true); return end
+        if input.KeyCode == Enum.KeyCode.Equals and input:IsModifierKeyDown(Enum.ModifierKey.Shift) then
+            setMinimized(false); return
+        end
         for _, mask in ipairs(MASK_DATA) do
             if input.KeyCode == mask.key then mask._activate(); break end
         end
@@ -1106,7 +1176,7 @@ end
 
 local function ESP_StartLoop()
     if ESP_ConnLoop then return end
-    ESP_RefreshObjects()
+    -- RefreshObjects hanya dipanggil setelah ESP_Enabled = true
     ESP_ConnLoop = RunService.Heartbeat:Connect(function()
         if not ESP_Enabled then return end
         for _, p in ipairs(Players:GetPlayers()) do
@@ -1153,8 +1223,14 @@ ESPEnableSection:AddToggle({
     Title="Enabled ESP", Content="Toggle all ESP on/off", Default=false,
     Callback=function(state)
         ESP_Enabled=state
-        if state then ESP_StartLoop(); MugiHub:SetNotification({Title="ESP",Description="ESP on",Delay=3})
-        else ESP_StopLoop(); MugiHub:SetNotification({Title="ESP",Description="ESP off",Delay=3}) end
+        if state then
+            ESP_StartLoop()
+            ESP_RefreshObjects()
+            MugiHub:SetNotification({Title="ESP",Description="ESP on",Delay=3})
+        else
+            ESP_StopLoop()
+            MugiHub:SetNotification({Title="ESP",Description="ESP off",Delay=3})
+        end
     end
 })
 
