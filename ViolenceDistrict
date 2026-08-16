@@ -311,6 +311,148 @@ local function StartSkillCheck()
 end
 
 local SurvivorsTab = Window:CreateTab({"Survivors", ICONS.Survivors})
+
+----------------------------------------------------------------
+-- Section: Global Prediction
+----------------------------------------------------------------
+local PredSection = SurvivorsTab:AddSection("Global Prediction", false)
+
+-- IndicatorGui — container label prediksi (dibuat sekali, persistent)
+local IndicatorGui = Instance.new("ScreenGui")
+IndicatorGui.Name           = "VD_IndicatorGui"
+IndicatorGui.ResetOnSpawn   = false
+IndicatorGui.IgnoreGuiInset = true
+IndicatorGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+IndicatorGui.Parent = RunService:IsStudio()
+    and PG
+    or (pcall(function() return gethui() end) and gethui()
+        or game:GetService("CoreGui"))
+
+local predictionEnabled   = false
+local PREDICTION_INTERVAL = 3
+
+local function updateNextKillerDisplay()
+    if not IndicatorGui or not IndicatorGui.Parent then return end
+    local label = IndicatorGui:FindFirstChild("NextKillerDisplay")
+
+    local teamName  = LocalPlayer.Team and LocalPlayer.Team.Name or ""
+    local isSpectator = teamName == "Spectators" or teamName == "Spectator"
+
+    if not isSpectator then
+        if label then label:Destroy() end
+        return
+    end
+
+    if not label then
+        label = Instance.new("TextLabel")
+        label.Name = "NextKillerDisplay"
+        label.Size         = UDim2.new(0, 260, 0, 75)
+        label.Position     = UDim2.new(0.5, 0, 0, 45)
+        label.AnchorPoint  = Vector2.new(0.5, 0)
+        label.BackgroundTransparency = 0.35
+        label.BackgroundColor3       = Color3.fromRGB(15, 15, 15)
+        label.BorderSizePixel        = 0
+        label.TextColor3  = Color3.fromRGB(255, 255, 255)
+        label.Font        = Enum.Font.GothamBold
+        label.TextSize    = 14
+        label.TextWrapped = true
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.TextYAlignment = Enum.TextYAlignment.Center
+        label.RichText    = true
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = label
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color     = Color3.fromRGB(255, 153, 204)
+        stroke.Thickness = 1.5
+        stroke.Parent    = label
+
+        label.Parent = IndicatorGui
+    end
+
+    local players = Players:GetPlayers()
+
+    table.sort(players, function(a, b)
+        local aAllow = GetGameValue(a, "AllowKiller") or false
+        local bAllow = GetGameValue(b, "AllowKiller") or false
+        if aAllow ~= bAllow then return aAllow == true end
+        local aChance = GetGameValue(a, "KillerChance") or 0
+        local bChance = GetGameValue(b, "KillerChance") or 0
+        return aChance > bChance
+    end)
+
+    local predictedPlayer = players[1]
+
+    if predictedPlayer then
+        local username       = predictedPlayer.Name
+        local killerSelected = GetGameValue(predictedPlayer, "KillerSelected") or "Unknown"
+        label.Text =
+            "<font size=\"16\"><b>KILLER PREDICTION</b></font>\n"
+            .. "<font color=\"rgb(160,160,160)\" size=\"13\">"
+            .. username
+            .. "</font>\n"
+            .. "<font color=\"rgb(255,255,255)\" size=\"12\">"
+            .. "Killer: " .. tostring(killerSelected)
+            .. "</font>"
+    else
+        label.Text =
+            "<font size=\"16\"><b>KILLER PREDICTION</b></font>\n"
+            .. "<font color=\"rgb(160,160,160)\" size=\"13\">"
+            .. "No player found"
+            .. "</font>\n"
+            .. "<font size=\"12\">"
+            .. "Killer: Unknown"
+            .. "</font>"
+    end
+end
+
+PredSection:AddToggle({
+    Title   = "Prediction Killer",
+    Content = "Prediksi siapa yang akan jadi Killer (hanya tampil saat Spectator)",
+    Default = false,
+    Callback = function(enabled)
+        predictionEnabled = enabled
+        if enabled then
+            task.spawn(function()
+                while predictionEnabled do
+                    pcall(updateNextKillerDisplay)
+                    task.wait(PREDICTION_INTERVAL)
+                end
+            end)
+            MugiHub:SetNotification({
+                Title       = "Prediction Killer",
+                Description = "ON",
+                Content     = "Update setiap " .. PREDICTION_INTERVAL .. " detik saat Spectator.",
+                Delay       = 3,
+            })
+        else
+            predictionEnabled = false
+            local label = IndicatorGui:FindFirstChild("NextKillerDisplay")
+            if label then label:Destroy() end
+            MugiHub:SetNotification({
+                Title       = "Prediction Killer",
+                Description = "OFF",
+                Delay       = 3,
+            })
+        end
+    end,
+})
+
+PredSection:AddSlider({
+    Title     = "Update Interval",
+    Content   = "Seberapa sering prediksi diupdate (detik)",
+    Increment = 1,
+    Min       = 1,
+    Max       = 10,
+    Default   = 3,
+    Callback  = function(val)
+        PREDICTION_INTERVAL = val
+    end,
+})
+
+----------------------------------------------------------------
 local GenSection   = SurvivorsTab:AddSection("Auto Generators", false)
 
 GenSection:AddDropdown({
@@ -499,7 +641,7 @@ AutoAtkSection:AddSlider({
 ----------------------------------------------------------------
 -- Section: Killer Movement (Mask Selection)
 ----------------------------------------------------------------
-local MaskedSection = KillerTab:AddSection("Killer Movement", false)
+local MaskedSection = KillerTab:AddSection("Mask Selection", false)
 
 -- Asset data — urut sesuai foto (tanpa Richard = default/deactivate)
 local MASK_DATA = {
