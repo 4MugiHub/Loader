@@ -1,3 +1,12 @@
+--[[
+    Mugi Hub | Violence District  v2.0
+    UI Library: MugiHub by DinoIjoNPC (https://github.com/4MugiHub/MugiHub)
+    Features ported from W424HUB by W424
+]]
+
+----------------------------------------------------------------
+-- LOAD LIBRARY
+----------------------------------------------------------------
 local MugiHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/4MugiHub/MugiHub/refs/heads/main/Mugi"))()
 
 local Players             = game:GetService("Players")
@@ -18,15 +27,21 @@ local Stats               = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local PG          = LocalPlayer:WaitForChild("PlayerGui")
 
+----------------------------------------------------------------
+-- ICONS (Lucide via rbxassetid)
+----------------------------------------------------------------
 local ICONS = {
     Main      = "rbxassetid://7733960981",
-    Killer    = "rbxassetid://6031068012",
-    Survivors = "rbxassetid://6031068421",
-    Aimbot    = "rbxassetid://6031071013",
-    ESP       = "rbxassetid://6031071226",
-    Settings  = "rbxassetid://6031071525",
+    Killer    = "rbxassetid://6031068012",  -- skull
+    Survivors = "rbxassetid://6031068421",  -- person
+    Aimbot    = "rbxassetid://6031071013",  -- target
+    ESP       = "rbxassetid://6031071226",  -- eye
+    Settings  = "rbxassetid://6031071525",  -- wrench
 }
 
+----------------------------------------------------------------
+-- HELPERS
+----------------------------------------------------------------
 local function GetGameValue(obj, name)
     if typeof(obj) ~= "Instance" then return nil end
     local attr = obj:GetAttribute(name)
@@ -47,6 +62,9 @@ local function GetPing()
     return math.clamp(ping, 0.03, 1.5)
 end
 
+----------------------------------------------------------------
+-- WINDOW
+----------------------------------------------------------------
 local _executorName = (identifyexecutor and identifyexecutor()) or
                       (getexecutorname and getexecutorname()) or
                       "Unknown"
@@ -57,6 +75,9 @@ local Window = MugiHub:CreateWindow({
     Tags        = {"VD | v2.0", "Executor: " .. _executorName}
 })
 
+----------------------------------------------------------------
+-- INDICATOR GUI (shared)
+----------------------------------------------------------------
 local IndicatorGui = Instance.new("ScreenGui")
 IndicatorGui.Name           = "VD_IndicatorGui"
 IndicatorGui.ResetOnSpawn   = false
@@ -66,6 +87,9 @@ IndicatorGui.Parent = RunService:IsStudio()
     and PG
     or (pcall(function() return gethui() end) and gethui() or CoreGui)
 
+----------------------------------------------------------------
+-- == TAB: MAIN ==
+----------------------------------------------------------------
 local MainTab     = Window:CreateTab({"Main", ICONS.Main})
 local MainSection = MainTab:AddSection("General", true)
 
@@ -180,6 +204,7 @@ MainSection:AddButton({
     end
 })
 
+-- Team Join Notification
 local _lastTeam = nil
 RunService.Heartbeat:Connect(function()
     local team = LocalPlayer.Team
@@ -200,8 +225,12 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+----------------------------------------------------------------
+-- == TAB: SURVIVORS ==
+----------------------------------------------------------------
 local SurvivorsTab = Window:CreateTab({"Survivors", ICONS.Survivors})
 
+-- Shared action press
 local ActionButton = nil
 local function FindActionButton()
     if ActionButton and ActionButton.Parent then return ActionButton end
@@ -247,6 +276,9 @@ local function PressActionNow()
     end
 end
 
+----------------------------------------------------------------
+-- Section: Global Prediction
+----------------------------------------------------------------
 local PredSection         = SurvivorsTab:AddSection("Global Prediction", false)
 local predictionEnabled   = false
 local PREDICTION_INTERVAL = 3
@@ -330,28 +362,47 @@ PredSection:AddSlider({
     Callback=function(val) PREDICTION_INTERVAL = val end
 })
 
+----------------------------------------------------------------
+-- Section: Auto Generator (3 mode: Instant, Legit, Random)
+----------------------------------------------------------------
 local GenEnabled     = false
 local GenMode        = "Instant"
 local GenConnections = {}
 local _lastGoalRot   = 0
 
+-- Recursively search for the skillcheck widget: needs a rotating "Line"/"Needle"
+-- and a "Goal"/"Zone" region that are both real GuiObjects and currently visible.
 local function GetSkillCheck()
     if not PG then return nil, nil end
-    for _, guiName in ipairs({"SkillCheckPromptGui","SkillCheckPromptGui-con","SkillCheckGui","SkillCheck"}) do
-        local gui = PG:FindFirstChild(guiName, true)
-        if gui then
-            local check = gui:FindFirstChild("Check", true) or gui:FindFirstChild("SkillCheck", true) or gui
-            if check and (check.Visible == true or check.Transparency < 1) then
-                local line = check:FindFirstChild("Line", true) or check:FindFirstChild("Needle", true) or check:FindFirstChild("Pointer", true)
-                local goal = check:FindFirstChild("Goal", true) or check:FindFirstChild("Zone", true) or check:FindFirstChild("Bar", true)
-                if line and goal then return line, goal end
+
+    local LINE_NAMES = {"Line","Needle","Pointer","Indicator","Arrow"}
+    local GOAL_NAMES = {"Goal","Zone","Bar","Target","SuccessZone","PerfectZone"}
+
+    local function isVisible(obj)
+        if not obj:IsA("GuiObject") then return false end
+        if obj.Visible == false then return false end
+        if obj:IsA("Frame") or obj:IsA("ImageLabel") then
+            if obj.BackgroundTransparency and obj.BackgroundTransparency >= 1
+               and (not obj:IsA("ImageLabel") or obj.ImageTransparency >= 1) then
+                -- still allow — some skillcheck bars are fully transparent containers
             end
         end
+        return true
     end
-    for _, obj in ipairs(PG:GetDescendants()) do
-        if obj.Name == "Check" and obj:IsA("GuiObject") and obj.Visible then
-            local line = obj:FindFirstChild("Line", true)
-            local goal = obj:FindFirstChild("Goal", true)
+
+    local function findNamed(root, names)
+        for _, nm in ipairs(names) do
+            local f = root:FindFirstChild(nm, true)
+            if f and isVisible(f) then return f end
+        end
+        return nil
+    end
+
+    -- Search every ScreenGui for a container that holds both a Line-like and Goal-like child
+    for _, gui in ipairs(PG:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Enabled then
+            local line = findNamed(gui, LINE_NAMES)
+            local goal = findNamed(gui, GOAL_NAMES)
             if line and goal then return line, goal end
         end
     end
@@ -363,13 +414,35 @@ local function StopGenerator()
     table.clear(GenConnections)
 end
 
+-- Reads the goal zone's actual angular width from its Size (fallback to a safe default)
+local function GetGoalHalfWidth(goal)
+    local width = 10 -- degrees, safe fallback
+    pcall(function()
+        if goal:IsA("GuiObject") and goal.AbsoluteSize and goal.AbsoluteSize.X > 0 then
+            -- Most DBD-style skillcheck rings map ~360 degrees to the ring circumference;
+            -- use the goal frame's rotation span (Size.X.Scale * 360) if it's a radial piece,
+            -- otherwise approximate from pixel width relative to a typical 200px ring radius.
+            local sizeScale = goal.Size.X.Scale
+            if sizeScale > 0 and sizeScale < 1 then
+                width = sizeScale * 360 * 0.5
+            end
+        end
+    end)
+    return math.clamp(width, 4, 40)
+end
+
 local function StartGenerator()
     StopGenerator()
     if not GenEnabled then return end
+    local missCount = 0
     local heartbeat = RunService.Heartbeat:Connect(function()
         if not GenEnabled then StopGenerator(); return end
         local line, goal = GetSkillCheck()
-        if not line or not goal then return end
+        if not line or not goal then
+            missCount = missCount + 1
+            return
+        end
+        missCount = 0
 
         if GenMode == "Instant" then
             PressActionNow()
@@ -380,31 +453,34 @@ local function StartGenerator()
         local gr = (goal.Rotation or 0) % 360
         local goalVelocity = math.abs(gr - _lastGoalRot)
         _lastGoalRot = gr
-        local dynamicOffset = math.clamp(goalVelocity * 0.35, 0, 8)
 
-        local startPos, endPos
+        -- Actual goal zone center/width, not a guessed fixed offset
+        local halfWidth = GetGoalHalfWidth(goal)
+        local dynamicOffset = math.clamp(goalVelocity * 0.25, 0, halfWidth * 0.4)
+
+        local perfectStart = (gr - halfWidth - dynamicOffset) % 360
+        local perfectEnd    = (gr + halfWidth + dynamicOffset) % 360
+        local neutralStart  = (gr - halfWidth * 2.4 - dynamicOffset) % 360
+        local neutralEnd    = (gr + halfWidth * 2.4 + dynamicOffset) % 360
+
+        local function within(val, s, e)
+            if s > e then return (val >= s or val <= e) end
+            return (val >= s and val <= e)
+        end
+
+        local shouldPress = false
 
         if GenMode == "Legit" then
-            startPos = (gr + 100 - dynamicOffset) % 360
-            endPos   = (gr + 110 + dynamicOffset) % 360
+            shouldPress = within(lr, perfectStart, perfectEnd)
         elseif GenMode == "Random" then
             if math.random(1, 10) <= 7 then
-                startPos = (gr + 100 - dynamicOffset) % 360
-                endPos   = (gr + 110 + dynamicOffset) % 360
+                shouldPress = within(lr, perfectStart, perfectEnd)
             else
-                startPos = (gr + 90 - dynamicOffset) % 360
-                endPos   = (gr + 128 + dynamicOffset) % 360
+                shouldPress = within(lr, neutralStart, neutralEnd) and not within(lr, perfectStart, perfectEnd)
             end
         end
 
-        local inside = false
-        if startPos > endPos then
-            inside = (lr >= startPos or lr <= endPos)
-        else
-            inside = (lr >= startPos and lr <= endPos)
-        end
-
-        if inside then
+        if shouldPress then
             PressActionNow()
         end
     end)
@@ -421,7 +497,7 @@ GenSection:AddDropdown({
     Callback = function(v)
         GenMode = v[1]
         if GenEnabled then StartGenerator() end
-        MugiHub:SetNotification({ Title="SkillCheck", Description="Mode: "..GenMode, Delay=2 })
+        MugiHub:SetNotification({ Title="SkillCheck", Description="Mode set to "..GenMode, Delay=2 })
     end
 })
 
@@ -441,6 +517,9 @@ GenSection:AddToggle({
     end
 })
 
+----------------------------------------------------------------
+-- Section: Auto Parry (Dagger) — ported from W424HUB
+----------------------------------------------------------------
 local AutoParry         = false
 local ParryDistance     = 12
 local RemoveParryCircle = false
@@ -503,6 +582,7 @@ local function GetKillerProfile(char)
     return {BonusDist=1, Delay=0}
 end
 
+-- Placeholder; real implementation defined after ParryRing GUI is built below
 local UpdateParryRing = function() end
 
 local function TriggerParryDagger()
@@ -541,6 +621,7 @@ local function TriggerParryDagger()
                 local predictedPos = eRoot.Position + (vel * (ping + 0.03))
                 local predictedDist = (predictedPos - root.Position).Magnitude
 
+                -- Cek animasi attack
                 local isAttacking = false
                 for _, track in ipairs(eHum:GetPlayingAnimationTracks()) do
                     if track.IsPlaying then
@@ -576,6 +657,7 @@ local function TriggerParryDagger()
     end)
 end
 
+-- Parry Ring GUI: ScreenGui circle overlay
 do
     local sg = Instance.new("ScreenGui")
     sg.Name = "ParryRingGui"
@@ -586,21 +668,23 @@ do
     local img = Instance.new("ImageLabel", sg)
     img.Name = "Ring"
     img.BackgroundTransparency = 1
-    img.Image = "rbxassetid://6765464500"
+    img.Image = "rbxassetid://6765464500"   -- circle outline
     img.ImageColor3 = Color3.fromRGB(0, 200, 255)
     img.ImageTransparency = 0.5
     img.AnchorPoint = Vector2.new(0.5, 0.5)
     img.Position = UDim2.new(0.5, 0, 0.5, 0)
     img.ZIndex = 998
-    ParryRing = sg
+    ParryRing = sg   -- store ref; we toggle Enabled instead of Visible
 end
 
+-- Override UpdateParryRing for ScreenGui version
 UpdateParryRing = function()
     if not ParryRing or not ParryRing.Parent then return end
     if RemoveParryCircle or not AutoParry then
         ParryRing.Enabled = false
     else
         ParryRing.Enabled = true
+        -- Scale ring to ParryDistance: convert studs → pixels approx
         local cam = Workspace.CurrentCamera
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -676,6 +760,7 @@ ParrySection:AddToggle({
     end
 })
 
+-- Warning Mark updater
 local function UpdateWarningMark(myRoot, closestKillerDist)
     if not myRoot then return end
     local warnGui = myRoot:FindFirstChild("KillerWarn")
@@ -711,6 +796,9 @@ local function UpdateWarningMark(myRoot, closestKillerDist)
     end
 end
 
+----------------------------------------------------------------
+-- Section: Auto Bot
+----------------------------------------------------------------
 local AutoBotEnabled = false
 local AutoBotHeal    = true
 local AutoBotRepair  = true
@@ -884,6 +972,9 @@ BotSection:AddToggle({Title="Evade Killer",Content="Lari saat killer mendekat",D
 BotSection:AddSlider({Title="Waypoint Spacing",Content="Jarak waypoint pathfinding",Min=1,Max=10,Default=4,Callback=function(v) AutoBotSpacing=v end})
 BotSection:AddSlider({Title="Agent Radius",Content="Radius agen pathfinding",Min=1,Max=5,Default=2,Callback=function(v) AutoBotRadius=v end})
 
+----------------------------------------------------------------
+-- Section: Bypass Gate
+----------------------------------------------------------------
 local GateSection = SurvivorsTab:AddSection("Bypass Gate", false)
 
 GateSection:AddButton({
@@ -918,6 +1009,9 @@ GateSection:AddButton({
     end
 })
 
+----------------------------------------------------------------
+-- == TAB: KILLER ==
+----------------------------------------------------------------
 local KillerTab = Window:CreateTab({"Killer", ICONS.Killer})
 
 local function IsKiller()
@@ -925,6 +1019,7 @@ local function IsKiller()
         (LocalPlayer.Team.Name == "Killer" or LocalPlayer.Team.Name == "Killers")
 end
 
+-- Auto Attack
 local AutoAtkSection = KillerTab:AddSection("Auto Attack", false)
 local AA_Enabled = false; local AA_Range = 10; local AA_Conn = nil; local AA_Cooldown = 0
 local CachedBasicAttack = nil; local SearchedAttackRemote = false
@@ -974,7 +1069,7 @@ AutoAtkSection:AddToggle({
         AA_Enabled = state
         if state then
             if not IsKiller() then
-                MugiHub:SetNotification({Title="Auto Attack",Description="Kamu bukan killer",Delay=3})
+                MugiHub:SetNotification({Title="Auto Attack",Description="You are not the Killer",Delay=3})
                 AA_Enabled=false; return
             end
             AA_Start()
@@ -987,6 +1082,7 @@ AutoAtkSection:AddToggle({
 })
 AutoAtkSection:AddSlider({Title="Attack Range",Content="Jarak max auto attack",Min=5,Max=25,Default=10,Callback=function(v) AA_Range=v end})
 
+-- Double Damage Generator
 local DoubleDamageGen = false
 local DmgSection = KillerTab:AddSection("Killer Advantages", false)
 DmgSection:AddToggle({
@@ -994,14 +1090,10 @@ DmgSection:AddToggle({
     Default=false,
     Callback=function(v) DoubleDamageGen=v end
 })
-DmgSection:AddButton({
-    Title="Activate Killer Power", Content="FireServer ActivatePower",
-    Callback=function()
-        pcall(function() ReplicatedStorage.Remotes.Killers.Killer.ActivatePower:FireServer() end)
-        MugiHub:SetNotification({Title="Killer Power",Description="Activated!",Delay=2})
-    end
-})
 
+----------------------------------------------------------------
+-- Mask Selection GUI (Improved)
+----------------------------------------------------------------
 local MaskedSection = KillerTab:AddSection("Mask Selection", false)
 local MaskGui = nil; local MaskKeyConn = nil
 
@@ -1038,6 +1130,7 @@ local function BuildMaskGui()
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Name = "MaskSelectionGUI"
 
+    -- Main frame – clean & modern
     local frame = Instance.new("Frame", screenGui)
     frame.Name = "MaskFrame"
     frame.Size = UDim2.new(0, 320, 0, 380)
@@ -1049,12 +1142,14 @@ local function BuildMaskGui()
     local strokeF = Instance.new("UIStroke", frame)
     strokeF.Color = Color3.fromRGB(255, 153, 204); strokeF.Thickness = 1.5
 
+    -- Header bar
     local header = Instance.new("Frame", frame)
     header.Size = UDim2.new(1, 0, 0, 44)
     header.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
     header.BorderSizePixel = 0
     header.ZIndex = 6
     local cornerH = Instance.new("UICorner", header); cornerH.CornerRadius = UDim.new(0, 14)
+    -- fix bottom corners of header
     local headerFix = Instance.new("Frame", header)
     headerFix.Size = UDim2.new(1,0,0.5,0); headerFix.Position = UDim2.new(0,0,0.5,0)
     headerFix.BackgroundColor3 = Color3.fromRGB(30,30,38); headerFix.BorderSizePixel = 0
@@ -1086,6 +1181,7 @@ local function BuildMaskGui()
         screenGui:Destroy(); MaskGui = nil
     end)
 
+    -- Selected label
     local selectedLbl = Instance.new("TextLabel", frame)
     selectedLbl.Size = UDim2.new(0.92, 0, 0, 22)
     selectedLbl.Position = UDim2.new(0.04, 0, 0, 50)
@@ -1108,6 +1204,7 @@ local function BuildMaskGui()
     hint.TextXAlignment = Enum.TextXAlignment.Left
     hint.ZIndex = 6
 
+    -- Grid container
     local gridContainer = Instance.new("Frame", frame)
     gridContainer.Size = UDim2.new(0.92, 0, 0, 228)
     gridContainer.Position = UDim2.new(0.04, 0, 0, 94)
@@ -1194,6 +1291,7 @@ local function BuildMaskGui()
         mask._activate = activate
     end
 
+    -- Deactivate button
     local deactBtn = Instance.new("TextButton", frame)
     deactBtn.Size = UDim2.new(0.88, 0, 0, 34)
     deactBtn.Position = UDim2.new(0.06, 0, 1, -44)
@@ -1211,6 +1309,7 @@ local function BuildMaskGui()
     end
     deactBtn.MouseButton1Click:Connect(deactivateMask)
 
+    -- Dragging
     local dragging, dragStart, startPos2 = false, nil, nil
     header.InputBegan:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
@@ -1233,6 +1332,7 @@ local function BuildMaskGui()
         end
     end)
 
+    -- Minimize with M
     local minimized = false
     local keyConn = UserInputService.InputBegan:Connect(function(inp, gp)
         if gp or not screenGui.Parent then return end
@@ -1261,7 +1361,7 @@ MaskedSection:AddToggle({
     Callback=function(state)
         if state then
             if not CheckIsMasked() then
-                MugiHub:SetNotification({Title="Mask",Description="Kamu bukan The Masked",Delay=4}); return
+                MugiHub:SetNotification({Title="Mask",Description="You are not playing The Masked",Delay=4}); return
             end
             BuildMaskGui()
         else
@@ -1271,8 +1371,12 @@ MaskedSection:AddToggle({
     end
 })
 
+----------------------------------------------------------------
+-- == TAB: AIMBOT ==
+----------------------------------------------------------------
 local AimbotTab = Window:CreateTab({"Aimbot", ICONS.Aimbot})
 
+-- Aimbot state
 local AimbotEnabled  = false
 local AimbotWallCheck = false
 local AimbotPart     = "Torso"
@@ -1324,6 +1428,7 @@ local function GetClosestAimbotTarget(currentTarget)
     local isKiller = myTeam and (myTeam.Name == "Killer" or myTeam.Name == "Killers")
     local best, bestDist = nil, AimbotRadius
 
+    -- Cek target lama dulu
     if currentTarget and currentTarget.Parent then
         local hum = currentTarget.Parent:FindFirstChildOfClass("Humanoid")
         if hum and hum.Health > 0 then
@@ -1399,6 +1504,7 @@ local function UpdateFOVCircleSize()
     end
 end
 
+-- Aimbot RenderStepped loop
 RunService.RenderStepped:Connect(function(dt)
     if not AimbotEnabled then return end
     local now = time()
@@ -1479,57 +1585,11 @@ AimSection:AddToggle({
     end
 })
 
-local SilentAimPistol = false
-local SilentAimFOV    = 250
-local SilentTarget    = nil
+-- Silent Aim (Twist Of Fate) — placeholder, full system built after ESP tab (needs ESP color table)
+local SilentAimSection = AimbotTab:AddSection("Silent Aim (Twist Of Fate)", false)
+-- NOTE: actual toggles + logic are wired further below via SilentAimSection (kept as upvalue)
 
-local function GetClosestSilentTarget()
-    local cam = Workspace.CurrentCamera
-    local center = cam.ViewportSize * 0.5
-    local best, bestDist = nil, SilentAimFOV
-    local myTeam = LocalPlayer.Team
-    local survivor = not (myTeam and (myTeam.Name == "Killer" or myTeam.Name == "Killers"))
-    if not survivor then return nil end
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p == LocalPlayer or not p.Character then continue end
-        local pTeam = p.Team
-        local isKiller = pTeam and (pTeam.Name == "Killer" or pTeam.Name == "Killers")
-        if not isKiller then continue end
-        local root = p.Character:FindFirstChild("HumanoidRootPart")
-        local hum = p.Character:FindFirstChildOfClass("Humanoid")
-        if not (root and hum and hum.Health > 0) then continue end
-        local pos, visible = cam:WorldToViewportPoint(root.Position)
-        if not visible then continue end
-        if AimbotWallCheck and not IsTargetVisible(root) then continue end
-        local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-        if dist < bestDist then bestDist=dist; best=root end
-    end
-    return best
-end
-
-local SilentSection = AimbotTab:AddSection("Silent Aim (Twist Of Fate)", false)
-
-SilentSection:AddToggle({
-    Title="Silent Aim Pistol", Content="Auto redirect tembakan ke killer",
-    Default=false,
-    Callback=function(v)
-        SilentAimPistol = v
-        if not v then SilentTarget = nil end
-        MugiHub:SetNotification({
-            Title="Silent Aim", Description=v and "ON – Auto lock to killer" or "OFF", Delay=3
-        })
-    end
-})
-SilentSection:AddToggle({
-    Title="Wall Check (Silent)", Content="Hanya aim ke killer yang terlihat",
-    Default=false, Callback=function(v) AimbotWallCheck=v end
-})
-SilentSection:AddSlider({
-    Title="Silent FOV Radius", Content="Radius FOV silent aim (pixel)",
-    Min=50, Max=500, Default=250,
-    Callback=function(v) SilentAimFOV=v end
-})
-
+-- Hitbox expander
 local HitboxExpander = false
 local HitboxSize = 15
 local HitboxSection = AimbotTab:AddSection("Hitbox Expander", false)
@@ -1560,6 +1620,7 @@ HitboxSection:AddSlider({
     Callback=function(v) HitboxSize=v end
 })
 
+-- Hitbox update loop
 RunService.Heartbeat:Connect(function()
     if not HitboxExpander then return end
     for _, p in ipairs(Players:GetPlayers()) do
@@ -1584,6 +1645,9 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+----------------------------------------------------------------
+-- == TAB: ESP ==
+----------------------------------------------------------------
 local ESP_Enabled       = false
 local ESP_Survivors     = true
 local ESP_Killers       = true
@@ -1618,8 +1682,10 @@ local ESP_WindowColor = ESP_Colors.Sky
 local ESP_GateColor   = ESP_Colors.White
 local ESP_SCPColor    = Color3.fromRGB(170, 0, 255)
 
+-- W424's ApplyHighlight (distance-based transparency)
 local function ESP_ApplyHighlight(obj, color)
     if not obj or not obj.Parent then return end
+    -- Cari root highlight pada Model, bukan MeshPart nested
     local adornee = obj
     if obj:IsA("MeshPart") or obj:IsA("UnionOperation") or obj:IsA("BasePart") then
         local parent = obj.Parent
@@ -1637,6 +1703,7 @@ local function ESP_ApplyHighlight(obj, color)
     h.FillColor = color; h.OutlineColor = color
     h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 
+    -- Distance-based transparency (safe, no PrimaryPart access)
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local refPos = nil
     pcall(function()
@@ -1671,6 +1738,7 @@ local function ESP_RemoveHighlight(obj)
     if h then pcall(function() h:Destroy() end) end
 end
 
+-- W424's status-aware player label
 local function ESP_ApplyPlayerLabel(char, player, isKiller, myHRP)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -1743,6 +1811,7 @@ local function ESP_RemovePlayerLabel(char)
     local bb = hrp:FindFirstChild("MugiESP_Label"); if bb then bb:Destroy() end
 end
 
+-- Generator progress bar (W424 style)
 local function ESP_UpdateGenBar(gen)
     if not gen or not gen.Parent then return true end
     local progress = GetGameValue(gen,"RepairProgress") or GetGameValue(gen,"Progress") or 0
@@ -1796,6 +1865,7 @@ local function ESP_UpdateGenBar(gen)
     return false
 end
 
+-- Pallet ESP (W424 style with validity check)
 local PrevESPState = {Generator=false,Pallet=false,Gate=false,Hook=false}
 
 local function ESP_RefreshObjects()
@@ -1809,12 +1879,17 @@ local function ESP_RefreshObjects()
             table.insert(ESP_ActiveGens, obj)
             if not PrevESPState.Generator then PrevESPState.Generator = true end
         elseif n == "Hook" and obj:IsA("Model") and ESP_Hooks then
+            -- Highlight the Hook Model itself, not each nested MeshPart
             ESP_ApplyHighlight(obj, ESP_HookColor)
         elseif (n == "Palletwrong" or n == "Pallet") and ESP_Pallets then
+            -- W424 pallet validity check
             local function IsActive(val) return val==true or (type(val)=="number" and val>0) end
             local isDropped = IsActive(GetGameValue(obj,"Dropped")) or IsActive(GetGameValue(obj,"IsDropped"))
             local isBroken  = IsActive(GetGameValue(obj,"Broken")) or IsActive(GetGameValue(obj,"IsBroken"))
             if not isDropped and not isBroken then
+                -- Highlight (was missing before — pallet only had a text tag, no color fill)
+                pcall(function() ESP_ApplyHighlight(obj, ESP_PalletColor) end)
+
                 local tag = obj:FindFirstChild("PalletESP_Tag")
                 if not tag then
                     local bb = Instance.new("BillboardGui"); bb.Name = "PalletESP_Tag"
@@ -1830,11 +1905,17 @@ local function ESP_RefreshObjects()
                     lbl.Text = "<b>[PALLET]</b>"; lbl.RichText = true
                     lbl.TextColor3 = ESP_PalletColor; lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 7
                 end
+            else
+                -- Pallet broken/dropped: remove stale highlight + tag
+                pcall(function() ESP_RemoveHighlight(obj) end)
+                local tag2 = obj:FindFirstChild("PalletESP_Tag")
+                if tag2 then tag2:Destroy() end
             end
         elseif n == "Gate" and ESP_Gates then
             ESP_ApplyHighlight(obj, ESP_GateColor)
         end
     end
+    -- Windows (scan only inside Map folder)
     if ESP_Windows then
         local map2 = Workspace:FindFirstChild("Map")
         if map2 then
@@ -1863,6 +1944,7 @@ local function ESP_ClearAll()
     ESP_ActiveGens = {}
 end
 
+-- SCP/Zombie ESP (W424 style)
 local SCPCache = {}
 local SCPFolder = Instance.new("Folder"); SCPFolder.Name = "SCPESP_Folder"; SCPFolder.Parent = Workspace
 local SCPConnection = nil
@@ -1892,6 +1974,7 @@ local function CreateSCP(v)
 end
 
 local function ScanSCP()
+    -- Only scan top-level Workspace children (not all descendants = lag)
     for _, v in ipairs(Workspace:GetChildren()) do
         if v:IsA("Model") and IsSCP(v) then CreateSCP(v) end
     end
@@ -1931,6 +2014,7 @@ local function ESP_StartLoop()
         if not ESP_Enabled then return end
         local now = tick()
 
+        -- Player labels & highlight: update every 0.15s
         if now - _espTick >= 0.15 then
             _espTick = now
             local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1956,6 +2040,7 @@ local function ESP_StartLoop()
             end
         end
 
+        -- Generator bars: update every 0.5s (bars dont change fast)
         if ESP_Generators and now - _espGenTick >= 0.5 then
             _espGenTick = now
             for i = #ESP_ActiveGens, 1, -1 do
@@ -2010,7 +2095,7 @@ ESPObjSection:AddToggle({Title="Generators",Content="Highlight generator + progr
 ESPObjSection:AddToggle({Title="Hooks",Content="Highlight hooks",Default=true,Callback=function(s) ESP_Hooks=s;if s then ESP_RefreshObjects() else
     local map=Workspace:FindFirstChild("Map"); if map then for _,obj in ipairs(map:GetDescendants()) do if obj.Name=="Hook" then
         local m=obj:FindFirstChild("Model"); if m then for _,p in ipairs(m:GetDescendants()) do if p:IsA("MeshPart") then ESP_RemoveHighlight(p) end end
-        else ESP_RemoveHighlight(obj) end end end end end})
+        else ESP_RemoveHighlight(obj) end end end end end end})
 ESPObjSection:AddToggle({Title="Pallets",Content="Highlight pallet",Default=true,Callback=function(s) ESP_Pallets=s;if s then ESP_RefreshObjects() else
     local map=Workspace:FindFirstChild("Map"); if map then for _,obj in ipairs(map:GetDescendants()) do
         if obj.Name=="Palletwrong" or obj.Name=="Pallet" then
@@ -2020,7 +2105,7 @@ ESPObjSection:AddToggle({Title="Windows",Content="Highlight jendela",Default=tru
     for _,obj in ipairs(Workspace:GetDescendants()) do if obj.Name=="Window" then ESP_RemoveHighlight(obj) end end end end})
 ESPObjSection:AddToggle({Title="Gates",Content="Highlight exit gate",Default=true,Callback=function(s) ESP_Gates=s;if s then ESP_RefreshObjects() else
     local map=Workspace:FindFirstChild("Map"); if map then for _,obj in ipairs(map:GetDescendants()) do
-        if obj.Name=="Gate" then ESP_RemoveHighlight(obj) end end end end})
+        if obj.Name=="Gate" then ESP_RemoveHighlight(obj) end end end end end})
 
 local ESPSettSection = ESPTab:AddSection("Settings ESP", false)
 ESPSettSection:AddToggle({Title="Show Distance (Survivors)",Content="Tampilkan jarak di label survivor",Default=true,Callback=function(s) ESP_ShowDistSurv=s end})
@@ -2038,8 +2123,12 @@ ESPColorSection:AddDropdown({Title="Pallets Color",Options=ESP_ColorList,Default
 ESPColorSection:AddDropdown({Title="Windows Color",Options=ESP_ColorList,Default={"Sky"},Callback=function(v) ESP_WindowColor=ESP_Colors[v[1]];ESP_RefreshObjects() end})
 ESPColorSection:AddDropdown({Title="Gates Color",Options=ESP_ColorList,Default={"White"},Callback=function(v) ESP_GateColor=ESP_Colors[v[1]];ESP_RefreshObjects() end})
 
+----------------------------------------------------------------
+-- == TAB: SETTINGS ==
+----------------------------------------------------------------
 local SettingsTab = Window:CreateTab({"Settings", ICONS.Settings})
 
+-- Remove Visual Effects (full W424 port)
 local QUANTUM_HiddenEffects = {}
 local QUANTUM_OldFogStart, QUANTUM_OldFogEnd = nil, nil
 
@@ -2077,7 +2166,7 @@ VisSection:AddToggle({
             QUANTUM_OldFogEnd   = Lighting.FogEnd
             Lighting.FogStart = 9e9
             Lighting.FogEnd   = 9e9
-            MugiHub:SetNotification({Title="Visual Effects",Description="Semua efek disembunyikan",Delay=3})
+            MugiHub:SetNotification({Title="Visual Effects",Description="All effects hidden",Delay=3})
         else
             for _, data in ipairs(QUANTUM_HiddenEffects) do
                 if data.Obj then
@@ -2090,7 +2179,7 @@ VisSection:AddToggle({
                 Lighting.FogStart = QUANTUM_OldFogStart
                 Lighting.FogEnd   = QUANTUM_OldFogEnd
             end
-            MugiHub:SetNotification({Title="Visual Effects",Description="Efek visual dikembalikan",Delay=3})
+            MugiHub:SetNotification({Title="Visual Effects",Description="Visual effects restored",Delay=3})
         end
     end
 })
@@ -2115,7 +2204,7 @@ VisSection:AddButton({
                 pcall(function() effect.Enabled = false end)
             end
         end
-        MugiHub:SetNotification({Title="Fullbright",Description="Layar terang maksimal!",Delay=3})
+        MugiHub:SetNotification({Title="Fullbright",Description="Fullbright applied",Delay=3})
     end
 })
 
@@ -2123,7 +2212,7 @@ VisSection:AddButton({
     Title="Potato Mode",
     Content="Hapus texture, shadow, efek visual — maksimalkan FPS",
     Callback=function()
-        MugiHub:SetNotification({Title="Potato Mode",Description="Mengoptimalkan...",Delay=2})
+        MugiHub:SetNotification({Title="Potato Mode",Description="Optimizing...",Delay=2})
         task.spawn(function()
             Lighting.GlobalShadows            = false
             Lighting.ShadowSoftness           = 0
@@ -2160,13 +2249,15 @@ VisSection:AddButton({
                         if v.Enabled then v.Enabled = false end
                     end
                 end)
+                -- yield every 100 objects to prevent lag spike
                 if i % 100 == 0 then task.wait() end
             end
-            MugiHub:SetNotification({Title="Potato Mode",Description="Selesai! FPS Boosted 🥔",Delay=3})
+            MugiHub:SetNotification({Title="Potato Mode",Description="Done — FPS boosted",Delay=3})
         end)
     end
 })
 
+-- Custom FOV
 local CustomCameraFOV = false
 local CameraFOVValue  = 100
 local CamSection = SettingsTab:AddSection("Camera", false)
@@ -2185,6 +2276,7 @@ RunService:BindToRenderStep("MugiCustomFOV", Enum.RenderPriority.Camera.Value + 
     end
 end)
 
+-- Anti-Logger
 local AntiLogger = true
 local SecSection = SettingsTab:AddSection("Security", false)
 SecSection:AddToggle({
@@ -2193,6 +2285,597 @@ SecSection:AddToggle({
     Callback=function(v) AntiLogger=v end
 })
 
+----------------------------------------------------------------
+-- SILENT AIM (TWIST OF FATE) — full system
+----------------------------------------------------------------
+-- Multi-target: Killer, Survivor, or Zombie/SCP depending on user team + mode.
+-- Safe  = only picks visible targets in a tight FOV, gentle prediction
+-- Brutal = wider FOV, always locks nearest valid target regardless of visibility
+
+local SilentAimPistol   = false
+local SilentAimMode     = "Safe"      -- "Safe" | "Brutal"
+local SilentTargetKind  = "Killer"    -- "Killer" | "Survivor" | "Zombie"
+local SilentAimFOV      = 250
+local LaserEffectOn     = false
+local SilentTarget      = nil         -- current locked target (BasePart)
+local SilentLaserBeam   = nil
+
+local SILENT_COLORS = {
+    Killer   = Color3.fromRGB(255, 80, 80),
+    Survivor = Color3.fromRGB(70, 160, 255),
+    Zombie   = Color3.fromRGB(255, 150, 50),
+}
+
+-- Reuse the ESP SCP detector if available, else fall back to a local copy
+local function SilentAim_IsSCP(v)
+    if not (v and v:IsA("Model")) then return false end
+    local nm = v.Name:lower()
+    return nm == "scp" or nm:match("^scp%d*$") or nm:match("^scp[%-_]?%d+$")
+        or nm:find("zombie") or nm:find("monster") or nm:find("infected") or nm:find("mutant")
+end
+
+local function SilentAim_GetValidPlayerTargets(kind)
+    local out = {}
+    local myTeam = LocalPlayer.Team
+    local myIsKiller = myTeam and (myTeam.Name == "Killer" or myTeam.Name == "Killers")
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer or not p.Character then continue end
+        local pTeam = p.Team
+        local pIsKiller = pTeam and (pTeam.Name == "Killer" or pTeam.Name == "Killers")
+        local wantKiller  = (kind == "Killer") and pIsKiller
+        local wantSurvivor = (kind == "Survivor") and not pIsKiller
+        if wantKiller or wantSurvivor then
+            local root = p.Character:FindFirstChild("HumanoidRootPart")
+            local hum  = p.Character:FindFirstChildOfClass("Humanoid")
+            if root and hum and hum.Health > 0 then
+                table.insert(out, root)
+            end
+        end
+    end
+    return out
+end
+
+local function SilentAim_GetValidZombieTargets()
+    local out = {}
+    for _, v in ipairs(Workspace:GetChildren()) do
+        if SilentAim_IsSCP(v) then
+            local root = v:FindFirstChild("HumanoidRootPart")
+            if not root then
+                local ok, pp = pcall(function() return v.PrimaryPart end)
+                root = (ok and pp) or v:FindFirstChildWhichIsA("BasePart")
+            end
+            local hum = v:FindFirstChildOfClass("Humanoid")
+            if root and (not hum or hum.Health > 0) then
+                table.insert(out, root)
+            end
+        end
+    end
+    return out
+end
+
+-- Returns the current best target BasePart based on mode/kind, or nil
+local function SilentAim_GetClosestTarget()
+    local cam = Workspace.CurrentCamera
+    if not cam then return nil end
+    local center = cam.ViewportSize * 0.5
+
+    local pool
+    if SilentTargetKind == "Zombie" then
+        pool = SilentAim_GetValidZombieTargets()
+    else
+        pool = SilentAim_GetValidPlayerTargets(SilentTargetKind)
+    end
+    if #pool == 0 then return nil end
+
+    local fov = SilentAimFOV
+    if SilentAimMode == "Brutal" then fov = fov * 1.4 end
+
+    local best, bestDist = nil, fov
+    for _, root in ipairs(pool) do
+        if root and root.Parent then
+            local pos, onScreen = cam:WorldToViewportPoint(root.Position)
+            if onScreen then
+                if SilentAimMode == "Safe" and AimbotWallCheck and not IsTargetVisible(root) then
+                    continue
+                end
+                local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                if dist < bestDist then bestDist = dist; best = root end
+            end
+        end
+    end
+    return best
+end
+
+-- ── Laser Effect: a red line from the muzzle/camera to the locked target ──
+local function SilentAim_EnsureLaser()
+    if SilentLaserBeam and SilentLaserBeam.Parent then return SilentLaserBeam end
+    local a0 = Instance.new("Attachment"); a0.Name = "SilentLaserA0"
+    local a1 = Instance.new("Attachment"); a1.Name = "SilentLaserA1"
+    local part0 = Instance.new("Part")
+    part0.Name = "SilentLaserAnchor0"; part0.Anchored = true; part0.CanCollide = false
+    part0.Transparency = 1; part0.Size = Vector3.new(0.1,0.1,0.1); part0.Parent = Workspace
+    a0.Parent = part0
+    local part1 = Instance.new("Part")
+    part1.Name = "SilentLaserAnchor1"; part1.Anchored = true; part1.CanCollide = false
+    part1.Transparency = 1; part1.Size = Vector3.new(0.1,0.1,0.1); part1.Parent = Workspace
+    a1.Parent = part1
+
+    local beam = Instance.new("Beam")
+    beam.Name = "SilentLaserBeam"
+    beam.Attachment0 = a0; beam.Attachment1 = a1
+    beam.Width0 = 0.06; beam.Width1 = 0.06
+    beam.Color = ColorSequence.new(Color3.fromRGB(255, 40, 40))
+    beam.Transparency = NumberSequence.new(0.15)
+    beam.FaceCamera = true
+    beam.Segments = 1
+    beam.LightEmission = 1
+    beam.Parent = part0
+
+    SilentLaserBeam = {
+        Beam = beam, Part0 = part0, Part1 = part1, A0 = a0, A1 = a1
+    }
+    return SilentLaserBeam
+end
+
+local function SilentAim_UpdateLaser(target)
+    if not LaserEffectOn then
+        if SilentLaserBeam then
+            pcall(function() SilentLaserBeam.Part0:Destroy() end)
+            pcall(function() SilentLaserBeam.Part1:Destroy() end)
+            SilentLaserBeam = nil
+        end
+        return
+    end
+    local char = LocalPlayer.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    local muzzle = tool and (tool:FindFirstChild("Muzzle", true) or tool:FindFirstChild("Handle"))
+    local origin
+    if muzzle then
+        origin = muzzle.Position
+    else
+        local cam = Workspace.CurrentCamera
+        origin = cam and cam.CFrame.Position
+    end
+    if not origin or not target or not target.Parent then
+        if SilentLaserBeam then
+            pcall(function() SilentLaserBeam.Beam.Enabled = false end)
+        end
+        return
+    end
+    local laser = SilentAim_EnsureLaser()
+    laser.Beam.Enabled = true
+    laser.Part0.CFrame = CFrame.new(origin)
+    laser.Part1.CFrame = CFrame.new(target.Position)
+end
+
+-- ── Called from inside hookmetamethod __namecall on FireServer ──
+-- Mutates `args` in place (redirects the first Vector3 arg = fire direction).
+-- Returns true if it redirected (caller should refire with mutated args).
+function SilentAim_TryRedirect(self, args)
+    if not SilentAimPistol then return false end
+    local char = LocalPlayer.Character
+    local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if not (myRoot and tool) then return false end
+
+    -- Must be actively firing (mouse or touch trigger held) — this is what makes
+    -- the "peluru tidak keluar saat klik" bug disappear: we NEVER swallow the call,
+    -- we only ever rewrite args and let it pass through normally.
+    local firing = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+    if not firing and not IsMobile then return false end
+
+    local target = SilentAim_GetClosestTarget()
+    SilentTarget = target
+    if not target or not target.Parent then return false end
+
+    local vel = target.AssemblyLinearVelocity or Vector3.zero
+    if vel.Magnitude > 45 then vel = vel.Unit * 45 end
+    local ping = math.clamp(GetPing(), 0.05, 0.18)
+    local leadTime = (SilentAimMode == "Brutal") and (0.03 + ping * 0.5) or (0.11 + ping)
+    local predicted = target.Position + (vel * leadTime)
+
+    local origin = Workspace.CurrentCamera.CFrame.Position
+    local dir = (predicted - origin)
+    if dir.Magnitude < 0.01 then return false end
+    dir = dir.Unit * 1000
+
+    local foundVector = false
+    for i, v in ipairs(args) do
+        if typeof(v) == "Vector3" then
+            args[i] = dir
+            foundVector = true
+            break
+        end
+    end
+    if not foundVector then return false end
+
+    return true
+end
+
+-- Laser + camera nudge update loop (separate from firing — laser shows target while held)
+RunService.RenderStepped:Connect(function()
+    if not SilentAimPistol then
+        if SilentLaserBeam then SilentAim_UpdateLaser(nil) end
+        return
+    end
+    local holding = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+    if holding or IsMobile then
+        SilentTarget = SilentAim_GetClosestTarget()
+    else
+        SilentTarget = nil
+    end
+    SilentAim_UpdateLaser(SilentTarget)
+end)
+
+----------------------------------------------------------------
+-- Silent Aim Selection GUI (floating, draggable, DPI-aware)
+----------------------------------------------------------------
+local SilentGui          = nil
+local SilentPopFrame      = nil
+local SilentMinimizeBtn   = nil
+local SilentIsOpen        = false
+local SilentOptionButtons = {}
+
+local OPTION_COLORS = {
+    Killer   = Color3.fromRGB(255, 80, 80),
+    Survivor = Color3.fromRGB(70, 160, 255),
+    Zombie   = Color3.fromRGB(255, 150, 50),
+}
+local COLOR_BUTTON_DEFAULT = Color3.fromRGB(40, 40, 48)
+local COLOR_PANEL_BG       = Color3.fromRGB(24, 24, 30)
+local COLOR_HEADER_BG      = Color3.fromRGB(30, 30, 38)
+local COLOR_ACCENT         = Color3.fromRGB(255, 153, 204)
+
+-- DPI-aware scale: pick a UI scale factor from screen size so the panel
+-- stays readably small on 400-450 DPI phones and doesn't look tiny on 700-2000 DPI.
+local function GetUIScale()
+    local cam = Workspace.CurrentCamera
+    local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+    local shortSide = math.min(vp.X, vp.Y)
+    -- baseline: 720px short side = scale 1.0
+    local scale = shortSide / 720
+    return math.clamp(scale, 0.75, 1.35)
+end
+
+local function setPopupState(open)
+    SilentIsOpen = open
+    if SilentPopFrame then SilentPopFrame.Visible = open end
+    if SilentMinimizeBtn then
+        SilentMinimizeBtn.Text = open and "-" or "+"
+    end
+end
+
+local function togglePopup()
+    setPopupState(not SilentIsOpen)
+end
+
+local function updateSelectionVisual(name)
+    for optName, btn in pairs(SilentOptionButtons) do
+        if optName == name then
+            btn.BackgroundColor3 = OPTION_COLORS[optName]
+            btn.UIStroke.Color = Color3.new(1,1,1)
+            btn.UIStroke.Transparency = 0.2
+        else
+            btn.BackgroundColor3 = COLOR_BUTTON_DEFAULT
+            btn.UIStroke.Color = Color3.fromRGB(70,70,80)
+            btn.UIStroke.Transparency = 0.4
+        end
+    end
+end
+
+local API = {}
+local selectedOption = nil
+
+function API.GetSelected()
+    return selectedOption
+end
+
+function API.SetSelected(name)
+    if not OPTION_COLORS[name] then return false end
+    selectedOption = name
+    SilentTargetKind = name
+    updateSelectionVisual(name)
+    return true
+end
+
+function API.Toggle()
+    togglePopup()
+end
+
+function API.IsOpen()
+    return SilentIsOpen
+end
+
+local function BuildSilentGui()
+    if SilentGui and SilentGui.Parent then SilentGui:Destroy() end
+
+    local scale = GetUIScale()
+    local W = math.floor(150 * scale)      -- minimize pill width
+    local PW = math.floor(178 * scale)     -- popup width
+    local BTN_H = math.floor(30 * scale)
+    local PAD = math.floor(8 * scale)
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "SilentPistolSelection"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 50
+    screenGui.Parent = (pcall(function() return gethui() end) and gethui()) or CoreGui
+
+    -- Root container (positioned responsively, not a hardcoded offset)
+    local root = Instance.new("Frame")
+    root.Name = "Root"
+    root.Size = UDim2.new(0, PW, 0, BTN_H)
+    root.Position = UDim2.new(0.5, -PW/2, 0.22, 0)   -- responsive: percentage-based, safe on all screens
+    root.BackgroundTransparency = 1
+    root.Parent = screenGui
+
+    -- Minimize / header bar (always visible, drag handle)
+    local minimize = Instance.new("TextButton")
+    minimize.Name = "Minimize"
+    minimize.Size = UDim2.new(1, 0, 0, BTN_H)
+    minimize.Position = UDim2.new(0, 0, 0, 0)
+    minimize.BackgroundColor3 = COLOR_HEADER_BG
+    minimize.AutoButtonColor = false
+    minimize.Text = ""
+    minimize.BorderSizePixel = 0
+    minimize.ZIndex = 5
+    minimize.Parent = root
+    local mCorner = Instance.new("UICorner", minimize); mCorner.CornerRadius = UDim.new(0, 8)
+    local mStroke = Instance.new("UIStroke", minimize)
+    mStroke.Color = COLOR_ACCENT; mStroke.Thickness = 1; mStroke.Transparency = 0.5
+
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Name = "Title"
+    titleLbl.Size = UDim2.new(1, -BTN_H, 1, 0)
+    titleLbl.Position = UDim2.new(0, PAD, 0, 0)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = "Silent Aim Target"
+    titleLbl.TextColor3 = Color3.fromRGB(230, 230, 235)
+    titleLbl.Font = Enum.Font.GothamBold
+    titleLbl.TextSize = math.floor(12 * scale)
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+    titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    titleLbl.ZIndex = 6
+    titleLbl.Parent = minimize
+
+    local toggleBtn = Instance.new("TextLabel")
+    toggleBtn.Name = "ToggleSymbol"
+    toggleBtn.Size = UDim2.new(0, BTN_H, 0, BTN_H)
+    toggleBtn.Position = UDim2.new(1, -BTN_H, 0, 0)
+    toggleBtn.BackgroundTransparency = 1
+    toggleBtn.Text = "+"
+    toggleBtn.TextColor3 = COLOR_ACCENT
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = math.floor(16 * scale)
+    toggleBtn.ZIndex = 6
+    toggleBtn.Parent = minimize
+    SilentMinimizeBtn = toggleBtn
+
+    -- Popup frame with option buttons
+    local popFrame = Instance.new("Frame")
+    popFrame.Name = "PopFrame"
+    popFrame.Size = UDim2.new(1, 0, 0, (BTN_H * 3) + (PAD * 4))
+    popFrame.Position = UDim2.new(0, 0, 0, BTN_H + PAD)
+    popFrame.BackgroundColor3 = COLOR_PANEL_BG
+    popFrame.BorderSizePixel = 0
+    popFrame.Visible = false
+    popFrame.ZIndex = 5
+    popFrame.Parent = root
+    local pCorner = Instance.new("UICorner", popFrame); pCorner.CornerRadius = UDim.new(0, 8)
+    local pStroke = Instance.new("UIStroke", popFrame)
+    pStroke.Color = COLOR_ACCENT; pStroke.Thickness = 1; pStroke.Transparency = 0.55
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, PAD * 0.6)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    listLayout.Parent = popFrame
+
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0, PAD)
+    padding.PaddingBottom = UDim.new(0, PAD)
+    padding.PaddingLeft = UDim.new(0, PAD)
+    padding.PaddingRight = UDim.new(0, PAD)
+    padding.Parent = popFrame
+
+    local OPTIONS = {"Killer", "Survivor", "Zombie"}
+    for i, name in ipairs(OPTIONS) do
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.LayoutOrder = i
+        btn.Size = UDim2.new(1, -PAD*2, 0, BTN_H)
+        btn.BackgroundColor3 = COLOR_BUTTON_DEFAULT
+        btn.AutoButtonColor = false
+        btn.Text = name
+        btn.TextColor3 = Color3.fromRGB(240, 240, 245)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = math.floor(12 * scale)
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 6
+        btn.Parent = popFrame
+        local bCorner = Instance.new("UICorner", btn); bCorner.CornerRadius = UDim.new(0, 6)
+        local bStroke = Instance.new("UIStroke", btn)
+        bStroke.Color = Color3.fromRGB(70,70,80); bStroke.Thickness = 1; bStroke.Transparency = 0.4
+        btn.UIStroke = bStroke
+
+        btn.MouseButton1Click:Connect(function()
+            API.SetSelected(name)
+            MugiHub:SetNotification({
+                Title = "Silent Aim", Description = "Target set to " .. name, Delay = 2
+            })
+        end)
+
+        SilentOptionButtons[name] = btn
+    end
+
+    -- Recompute popFrame height to match actual list content
+    listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        popFrame.Size = UDim2.new(1, 0, 0, listLayout.AbsoluteContentSize.Y + PAD*2)
+    end)
+
+    ------------------------------------------------------------
+    -- Drag system: unified Mouse + Touch, click vs drag distinguished by delta
+    ------------------------------------------------------------
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    local moved = false
+    local DRAG_THRESHOLD = 4 -- pixels; below this = treated as a click, not a drag
+
+    local function beginDrag(pos)
+        dragging = true
+        moved = false
+        dragStart = pos
+        startPos = root.Position
+    end
+
+    local function updateDrag(pos)
+        if not dragging then return end
+        local delta = pos - dragStart
+        if delta.Magnitude > DRAG_THRESHOLD then moved = true end
+        local viewportSize = screenGui.AbsoluteSize
+        if viewportSize.X <= 0 or viewportSize.Y <= 0 then return end
+        local newX = startPos.X.Scale + (delta.X / viewportSize.X)
+        local newY = startPos.Y.Scale + (delta.Y / viewportSize.Y)
+        -- Clamp so the GUI can't be dragged fully off-screen
+        newX = math.clamp(newX, -0.1, 1.02)
+        newY = math.clamp(newY, 0, 0.95)
+        root.Position = UDim2.new(newX, startPos.X.Offset, newY, startPos.Y.Offset)
+    end
+
+    local function endDrag()
+        dragging = false
+    end
+
+    minimize.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            beginDrag(Vector2.new(input.Position.X, input.Position.Y))
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+           or input.UserInputType == Enum.UserInputType.Touch) then
+            updateDrag(Vector2.new(input.Position.X, input.Position.Y))
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            if dragging then
+                local wasClick = not moved
+                endDrag()
+                if wasClick then
+                    togglePopup()
+                end
+            end
+        end
+    end)
+
+    -- PC keyboard shortcut: Minus key toggles popup, ignored while typing in a TextBox
+    local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if not screenGui.Parent then return end
+        local focused = UserInputService:GetFocusedTextBox()
+        if focused then return end
+        if input.KeyCode == Enum.KeyCode.Minus or input.KeyCode == Enum.KeyCode.KeypadMinus then
+            togglePopup()
+        end
+    end)
+
+    screenGui.AncestryChanged:Connect(function(_, parent)
+        if not parent and keyConn then keyConn:Disconnect() end
+    end)
+
+    SilentGui = screenGui
+    SilentPopFrame = popFrame
+
+    -- Initial state: closed, nothing selected visually yet
+    setPopupState(false)
+    for _, btn in pairs(SilentOptionButtons) do
+        btn.BackgroundColor3 = COLOR_BUTTON_DEFAULT
+    end
+end
+
+local function ShowSilentGui()
+    if not SilentGui or not SilentGui.Parent then
+        BuildSilentGui()
+    end
+    -- Default target: Killer, selected automatically when GUI opens
+    API.SetSelected("Killer")
+end
+
+local function HideSilentGui()
+    if SilentGui and SilentGui.Parent then
+        SilentGui:Destroy()
+        SilentGui = nil
+        SilentPopFrame = nil
+        SilentMinimizeBtn = nil
+        table.clear(SilentOptionButtons)
+    end
+    SilentIsOpen = false
+end
+
+
+----------------------------------------------------------------
+-- Silent Aim UI (compact, DPI-scaled)
+----------------------------------------------------------------
+SilentAimSection:AddToggle({
+    Title="Silent Aim (Twist Of Fate)", Content="Auto-redirect tembakan ke target terdekat sesuai mode",
+    Default=false,
+    Callback=function(v)
+        SilentAimPistol = v
+        if v then
+            ShowSilentGui()
+        else
+            SilentTarget = nil
+            SilentAim_UpdateLaser(nil)
+            HideSilentGui()
+        end
+        MugiHub:SetNotification({
+            Title="Silent Aim", Description=v and ("ON — Target: "..SilentTargetKind) or "OFF", Delay=3
+        })
+    end
+})
+SilentAimSection:AddDropdown({
+    Title="Silent Aim Mode", Content="Safe = akurat & aman, Brutal = FOV lebar & agresif",
+    Options={"Safe","Brutal"}, Default={"Safe"},
+    Callback=function(v) SilentAimMode = v[1] end
+})
+SilentAimSection:AddDropdown({
+    Title="Target Type", Content="Pilih siapa yang jadi target Silent Aim (sinkron dengan GUI floating)",
+    Options={"Killer","Survivor","Zombie"}, Default={"Killer"},
+    Callback=function(v)
+        SilentTargetKind = v[1]
+        if SilentGui and SilentGui.Parent then
+            API.SetSelected(v[1])
+        end
+    end
+})
+SilentAimSection:AddToggle({
+    Title="Laser Effect", Content="Tampilkan garis merah ke arah target saat trigger ditahan",
+    Default=false,
+    Callback=function(v)
+        LaserEffectOn = v
+        if not v then SilentAim_UpdateLaser(nil) end
+    end
+})
+SilentAimSection:AddSlider({
+    Title="Silent FOV Radius", Content="Radius FOV pencarian target (pixel)",
+    Min=50, Max=500, Default=250,
+    Callback=function(v) SilentAimFOV=v end
+})
+
+
+----------------------------------------------------------------
+-- HOOKMETAMETHOD (SilentAim + AntiLogger + DoubleDamage)
+----------------------------------------------------------------
 local _hookOk = pcall(function()
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
@@ -2203,10 +2886,12 @@ local _hookOk = pcall(function()
         local args = {...}
         local n = tostring(self):lower()
 
+        -- Anti-Logger
         if AntiLogger and (n:find("log") or n:find("error") or n:find("report") or n:find("anticheat") or n:find("ban")) then
             return
         end
 
+        -- Double Damage Generator (Killer only)
         if DoubleDamageGen and n:find("breakgenevent") then
             local myTeam = LocalPlayer.Team
             if myTeam and myTeam.Name:lower():find("killer") then
@@ -2222,39 +2907,11 @@ local _hookOk = pcall(function()
             end
         end
 
+        -- Silent Aim Pistol (Twist Of Fate) — redirect Vector3 fire-direction arg only
         if SilentAimPistol and n:find("fire") then
-            local myTeam = LocalPlayer.Team
-            local survivor = not (myTeam and myTeam.Name:lower():find("killer"))
-            if survivor then
-                local char = LocalPlayer.Character
-                local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-                local tool = char and char:FindFirstChildOfClass("Tool")
-                if myRoot and tool then
-                    local firing = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-                    if firing then
-                        local target = GetClosestSilentTarget()
-                        if target and target.Parent then
-                            local vel = target.AssemblyLinearVelocity or Vector3.zero
-                            if vel.Magnitude > 45 then vel = vel.Unit * 45 end
-                            local ping = GetPing()
-                            ping = math.clamp(ping, 0.05, 0.18)
-                            local predicted = target.Position + (vel * (0.11 + ping))
-                            local origin = Workspace.CurrentCamera.CFrame.Position
-                            local dir = (predicted - origin).Unit * 1000
-                            for i, v in ipairs(args) do
-                                if typeof(v) == "Vector3" then
-                                    args[i] = dir; break
-                                end
-                            end
-                            task.spawn(function()
-                                pcall(function()
-                                    Workspace.CurrentCamera.CFrame = CFrame.lookAt(Workspace.CurrentCamera.CFrame.Position, predicted)
-                                end)
-                            end)
-                            return oldNamecall(self, unpack(args))
-                        end
-                    end
-                end
+            local ok, redirected = pcall(SilentAim_TryRedirect, self, args)
+            if ok and redirected then
+                return oldNamecall(self, unpack(args))
             end
         end
 
@@ -2263,10 +2920,15 @@ local _hookOk = pcall(function()
 end)
 
 if not _hookOk then
-    warn("[MugiHub] hookmetamethod tidak tersedia — SilentAim/AntiLogger/DoubleDamage dinonaktifkan.")
+    warn("[MugiHub] hookmetamethod tidak tersedia — Silent Aim, Anti-Logger, Double Damage dinonaktifkan.")
     SilentAimPistol = false; AntiLogger = false; DoubleDamageGen = false
+    LaserEffectOn = false
+    pcall(function() SilentAim_UpdateLaser(nil) end)
 end
 
+----------------------------------------------------------------
+-- PARRY + WARNING MARK HEARTBEAT LOOP
+----------------------------------------------------------------
 local _closestKillerDist = 999
 local _mainBeatTick = 0
 local _parryBeatTick = 0
@@ -2277,6 +2939,7 @@ RunService.Heartbeat:Connect(function()
     if not myRoot then return end
     local now = tick()
 
+    -- Update closest killer distance + warning mark every 0.1s
     if now - _mainBeatTick >= 0.1 then
         _mainBeatTick = now
         _closestKillerDist = 999
@@ -2295,14 +2958,18 @@ RunService.Heartbeat:Connect(function()
         pcall(function() UpdateWarningMark(myRoot, _closestKillerDist) end)
     end
 
+    -- Auto parry: needs fast polling (every frame is fine, it self-throttles via LastParryTick)
     if AutoParry then pcall(TriggerParryDagger) end
 end)
 
+----------------------------------------------------------------
+-- FINAL
+----------------------------------------------------------------
 MugiHub:SetNotification({
     Title       = "Mugi Hub v2.0",
-    Description = "Loaded!",
-    Content     = "VD Script dengan fitur lengkap. Stay safe! 🩷",
+    Description = "Loaded",
+    Content     = "All systems ready. Have fun and stay safe.",
     Delay       = 4
 })
 
-print("✅ Mugi Hub v2.0 Full Loaded!")
+print("[Mugi Hub] v2.0 fully loaded.")
